@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guía de uso - Armonic</title>
+  <link rel="icon" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav-inner">
+      <a class="brand" href="index.html"><img class="logo" src="assets/logo.png" alt="Armonic"> Armonic</a>
+      <div class="nav-links">
+        <a href="index.html">Inicio</a>
+        <a href="guia.html" class="active">Guía de uso</a>
+        <a href="notas.html">Notas de liberación</a>
+        <a href="faq.html">FAQ</a>
+        <a href="roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <span class="eyebrow">Guía de uso</span>
+    <h1>Empezar a usar Armonic</h1>
+    <p class="text-soft">Esta guía tiene dos partes: primero <strong>para miembros</strong> (usar la app), después <strong>para admins</strong> (desplegar y administrar la instancia). Si alguien ya te pasó un link de invitación, podes pasar directamente a la seccion de miembros.</p>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;">
+      <a class="card-link" href="#miembros"><div class="card"><span class="tag member">Miembro</span><h3 style="margin:10px 0 4px;">Usar la app →</h3><p class="text-soft" style="margin:0;">Instalar, unirse y chatear.</p></div></a>
+      <a class="card-link" href="#admin"><div class="card"><span class="tag admin">Admin</span><h3 style="margin:10px 0 4px;">Desplegar el server →</h3><p class="text-soft" style="margin:0;">Levantar y reclamar la instancia.</p></div></a>
+    </div>
+
+    <hr>
+
+    <!-- =================== MIEMBROS =================== -->
+    <h1 id="miembros"><span class="tag member">Miembro</span> Usar la app</h1>
+
+    <h2>1. Instalar el cliente</h2>
+    <p>Armonic tiene una app de Flutter que corre en <strong>Android, Linux y Web</strong>. Según cómo te la hayan entregado:</p>
+    <ul>
+      <li><strong>Web:</strong> abrí la URL que te pasaron en el navegador. No hace falta instalar nada.</li>
+      <li><strong>Android:</strong> instalá el <code>.apk</code> provisto.</li>
+      <li><strong>Desde el código</strong> (si compilás vos mismo): <code>flutter pub get</code> y luego <code>flutter run -d chrome</code> (o <code>-d linux</code> / tu dispositivo Android).</li>
+    </ul>
+
+    <h2>2. Agregar una instancia</h2>
+    <p>Una <em>instancia</em> es un servidor de Armonic concreto (la comunidad de un amigo, la de tu equipo, etc.).</p>
+    <p>En la pantalla de inicio tocá <strong>“+”</strong> y pegá la <strong>URL base</strong> de la instancia (por ejemplo <code>https://chat.miequipo.dev</code>). La app te muestra su nombre, descripción y cantidad de miembros.</p>
+    <div class="callout note"><p><span class="label">Multi-instancia:</span> podés agregar varias instancias distintas y cambiar entre ellas desde la pantalla principal, cada una con su propia sesión guardada.</p></div>
+
+    <h2>3. Crear tu cuenta</h2>
+    <p>Armonic <strong>no tiene registro público</strong>. Hay exactamente dos formas de tener cuenta, y la app elige la correcta automáticamente según el estado de la instancia:</p>
+
+    <h3>a) Con un link de invitación (lo más común)</h3>
+    <p>Si te compartieron un link tipo <code>https://…?invite=&lt;token&gt;</code>, abrilo. La app te muestra a qué instancia pertenece y hasta cuándo es válido, y te pide elegir <strong>usuario y contraseña</strong>. Listo: quedás dentro como miembro.</p>
+    <div class="callout warn"><p><span class="label">⚠️ Advertencia:</span> cada invitación es de <strong>un solo uso</strong>. Si el link ya fue utilizado o venció, vas a ver “esta invitación ya no es válida”. Deberas solicitarle al admin una nueva.</p></div>
+
+    <h3>b) Reclamando una instancia nueva</h3>
+    <p>Si la instancia todavía no tiene dueño, la app te permite reclamar el mismo: ingresás la contraseña de la instancia, después elegís usuario y contraseña, automaticamente seras el <strong>administrador</strong>.</p>
+    <p>Ver la <a href="#admin">parte de admin</a> para el detalle.</p>
+
+    <h3>c) Ya tenés cuenta</h3>
+    <p>Si ya te habías registrado en esa instancia, simplemente iniciá sesión con tu <strong>usuario y contraseña</strong>.</p>
+
+    <h2>5. Hablar en canales de voz</h2>
+    <div class="callout note"><p><span class="label">¿No se escucha?</span> Revisá permisos de micrófono y mirá la sección de voz en la <a href="faq.html">FAQ</a>.</p></div>
+
+    <hr>
+
+    <!-- =================== ADMIN =================== -->
+    <h1 id="admin"><span class="tag admin">Admin</span> Desplegar y administrar</h1>
+    <p class="text-soft">El backend es un binario de Go con Postgres. La forma más simple de levantarlo es con Docker Compose.</p>
+
+    <h2>1. Levantar el backend</h2>
+    <p>Necesitás <strong>Docker</strong>. Cloná el repo del backend y, antes de arrancar, configurá el secreto de claim:</p>
+
+    <ol class="steps">
+      <li>
+        <strong>Editá <code>config.json</code></strong> y poné una contraseña de instancia fuerte en <code>app.password</code>. Esta es la contraseña que quien reclame la instancia va a tener que ingresar.
+        <pre><code>{
+  "app": {
+    "port": 8080,
+    "password": "una-clave-larga-y-secreta"
+  }
+}</code></pre>
+        <div class="callout warn" style="margin-top:10px;"><p style="margin-bottom:0;"><span class="label">⚠️</span> El servidor <strong>no arranca</strong> si <code>app.password</code> está vacío o el archivo falta.</p>
+        <p>Nunca dejes el valor por defecto <code>change-me</code>.</p></div>
+      </li>
+      <li>
+        <strong>Definí el <code>JWT_SECRET</code></strong> (firma los tokens de sesión) en <code>docker-compose.yml</code>. Cambiá el <code>change-me</code> por un valor propio y aleatorio.
+      </li>
+      <li>
+        <strong>Levantá todo:</strong>
+        <pre><code>docker compose up -d</code></pre>
+        Esto arranca Postgres y la app; el servidor queda escuchando en el puerto <code>8080</code>. En entornos productivos se recomienda tener un reverse proxy con HTTPS por delante.
+      </li>
+    </ol>
+
+    <h2>2. Reclamar la instancia</h2>
+    <p>Al arrancar por primera vez, la instancia existe pero <strong>no tiene dueño</strong>. Desde el cliente:</p>
+    <ol class="steps">
+      <li>Agregá la instancia por su URL. La app detecta que no está reclamada y muestra el flujo de claim.</li>
+      <li>Ingresá la <strong>contraseña de instancia</strong> (la de <code>config.json</code>). Tenés aproximadamente 10 minutos para completar el registro antes de que el ticket expire.</li>
+      <li>Elegí tu <strong>usuario y contraseña</strong> de admin. Quedás registrado, logueado y sos el dueño de la instancia.</li>
+    </ol>
+    <div class="callout note"><p>Al reclamar se crean automáticamente un canal de texto <code>general</code> y uno de voz <code>General</code>.</p></div>
+
+    <h2>3. Invitar gente</h2>
+    <p>Como sos el único que puede crear cuentas, para sumar miembros generás <strong>invitaciones</strong> desde el cliente (opción de administración del servidor). </p>
+    <p>Cada invitación:</p>
+    <ul>
+      <li>Produce un link tipo <code>&lt;url&gt;?invite=&lt;token&gt;</code> que compartís por fuera (chat, mail, etc.).</li>
+      <li>Es de <strong>un solo uso</strong> y vence a las <strong>24 horas</strong>.</li>
+      <li>Al redimirse crea una cuenta nueva ya como miembro de tu instancia.</li>
+    </ul>
+
+    <h2>4. Moderación</h2>
+    <p>Como dueño podés <strong>expulsar</strong> usuarios:</p>
+    <ul>
+      <li><strong>Del canal de voz</strong> - lo saca de la sala de voz actual.</li>
+      <li><strong>Del servidor</strong> - le quita la membresía a la instancia.</li>
+    </ul>
+
+    <h2>5. Configuración de referencia</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Qué hace</th><th>Default</th></tr></thead>
+        <tbody>
+          <tr><td><code>app.password</code> (config.json)</td><td>Contraseña para reclamar la instancia. Obligatoria.</td><td>-</td></tr>
+          <tr><td><code>JWT_SECRET</code></td><td>Firma los tokens de sesión. Cambialo siempre.</td><td><code>change-me</code></td></tr>
+          <tr><td><code>DATABASE_URL</code></td><td>DSN de Postgres.</td><td>Postgres local</td></tr>
+          <tr><td><code>PORT</code> / <code>HOST</code></td><td>Dónde escucha el servidor.</td><td><code>8080</code> / <code>localhost</code></td></tr>
+          <tr><td><code>MAX_MSG_LEN</code></td><td>Largo máximo de un mensaje de texto.</td><td><code>2000</code></td></tr>
+          <tr><td><code>LOG_LEVEL</code> / <code>LOG_FILE</code></td><td>Nivel de log y archivo opcional (ruta absoluta).</td><td><code>info</code> / stdout</td></tr>
+          <tr><td><code>STUN_SERVERS</code> / <code>TURN_SERVERS</code></td><td>Servidores ICE para la voz WebRTC.</td><td>STUN de Google</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout note"><p><span class="label">Nota:</span> si tus usuarios están detrás de NATs restrictivas puedes llegar a presentar problemas a la hoar de comunicarte.</p></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>Armonic - Manual de usuario</span>
+      <span><a href="index.html">← Volver al inicio</a></span>
+    </div>
+  </footer>
+</body>
+</html>

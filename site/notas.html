@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notas de liberación - Armonic</title>
+  <link rel="icon" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav-inner">
+      <a class="brand" href="index.html"><img class="logo" src="assets/logo.png" alt="Armonic"> Armonic</a>
+      <div class="nav-links">
+        <a href="index.html">Inicio</a>
+        <a href="guia.html">Guía de uso</a>
+        <a href="notas.html" class="active">Notas de liberación</a>
+        <a href="faq.html">FAQ</a>
+        <a href="roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <span class="eyebrow">Notas de liberación</span>
+    <h1>Qué cambió en cada versión</h1>
+
+    <!-- ============ Plantilla para versiones futuras (copiá este bloque) ============
+    <div class="release">
+      <div class="version">
+        <span class="pill">vX.Y.Z</span>
+        <h2>Título corto de la versión</h2>
+        <span class="date">AAAA-MM-DD</span>
+      </div>
+      <ul class="changelog">
+        <li class="add"><strong>Novedad:</strong> qué se agregó y cómo se usa.</li>
+        <li class="fix"><strong>Arreglo:</strong> qué se corrigió.</li>
+        <li class="known"><strong>Se sabe:</strong> limitación conocida.</li>
+      </ul>
+    </div>
+    ================================================================================ -->
+
+    <div class="release">
+      <div class="version">
+        <span class="pill">v0.1.0</span>
+        <h2>Primera versión</h2>
+        <span class="date">2026-07-12</span>
+      </div>
+      <p>El primer release usable de Armonic: una comunidad autohospedada con texto en tiempo real, voz, y el flujo completo de reclamo e invitaciones.</p>
+      <ul class="changelog">
+        <li class="add"><strong>Chat de texto en tiempo real</strong> - canales de texto sobre WebSocket, con historial de los últimos mensajes. Los mensajes de otras personas llegan al instante.</li>
+        <li class="add"><strong>Canales de voz</strong> - audio por WebRTC relayado por el backend (tipo SFU): varias personas en la misma sala, con reconexión automática cuando alguien entra o sale.</li>
+        <li class="add"><strong>Cliente multi-instancia</strong> - app de Flutter para Android, Linux y Web. guardá y alterná entre varias instancias de Armonic, cada una con su sesión.</li>
+        <li class="add"><strong>Flujo de reclamo (claim)</strong> - una instancia nueva arranca sin dueño. la primera persona que ingresa la contraseña de instancia se vuelve admin.</li>
+        <li class="add"><strong>Invitaciones de un solo uso</strong> - el admin genera links de invitación (válidos 24 h) para sumar miembros. No hay registro público.</li>
+        <li class="add"><strong>Moderación</strong> - el dueño puede expulsar usuarios de un canal de voz o del servidor.</li>
+        <li class="add"><strong>Autohospedaje con Docker</strong> - <code>docker compose up -d</code> levanta la app y Postgres. el secreto de instancia se monta por fuera de la imagen.</li>
+      </ul>
+    </div>
+
+    <div class="callout note">
+      <p>Usamos <a href="https://semver.org/lang/es/" target="_blank" rel="noopener">versionado semántico</a>.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>Armonic - Manual de usuario</span>
+      <span><a href="index.html">← Volver al inicio</a></span>
+    </div>
+  </footer>
+</body>
+</html>

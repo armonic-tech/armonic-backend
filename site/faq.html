@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAQ — Armonic</title>
+  <link rel="icon" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav-inner">
+      <a class="brand" href="index.html"><img class="logo" src="assets/logo.png" alt="Armonic"> Armonic</a>
+      <div class="nav-links">
+        <a href="index.html">Inicio</a>
+        <a href="guia.html">Guía de uso</a>
+        <a href="notas.html">Notas de liberación</a>
+        <a href="faq.html" class="active">FAQ</a>
+        <a href="roadmap.html">Roadmap</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <span class="eyebrow">Preguntas frecuentes</span>
+    <h1>FAQ</h1>
+    <p class="text-soft">Las dudas más comunes de miembros y admins. Tocá una pregunta para desplegar la respuesta.</p>
+
+    <h2>General</h2>
+
+    <details class="faq">
+      <summary>¿Por qué no puedo registrarme yo mismo?</summary>
+      <div class="faq-body">
+        <p>Armonic no tiene registro público a propósito: es una plataforma para comunidades cerradas y autohospedadas. Solo hay dos formas de tener cuenta: <strong>reclamar</strong> una instancia nueva (te vuelve admin) o entrar con un <strong>link de invitación</strong> que te comparte el admin.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Qué es una “instancia”?</summary>
+      <div class="faq-body">
+        <p>Es un servidor de Armonic concreto, identificado por su URL. Cada instancia es una comunidad independiente con sus propios canales, miembros y voz. En la app podés agregar varias y cambiar entre ellas.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿En qué plataformas corre la app?</summary>
+      <div class="faq-body">
+        <p>El cliente está hecho en Flutter y corre en <strong>Android, Linux y Web</strong>. La versión web se abre directo desde el navegador sin instalar nada.</p>
+      </div>
+    </details>
+
+    <h2><span class="tag member">Miembro</span> Uso diario</h2>
+
+    <details class="faq">
+      <summary>Me pasaron un link de invitación y dice que “ya no es válido”.</summary>
+      <div class="faq-body">
+        <p>Las invitaciones son de <strong>un solo uso</strong> y vencen a las <strong>24 horas</strong>. Si alguien ya la usó o pasó el plazo, deja de funcionar. Pedile al admin que genere una nueva.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Puedo escribir mensajes pero no se escucha nada en el canal de voz.</summary>
+      <div class="faq-body">
+        <p>Revisá, en orden:</p>
+        <ul>
+          <li>Que le hayas dado <strong>permiso de micrófono</strong> a la app o al navegador.</li>
+          <li>Que no estés silenciado a nivel sistema operativo.</li>
+          <li>Si estás en una <strong>red muy restrictiva</strong> (algunas redes corporativas o NAT dobles), la voz puede no conectar sin un servidor TURN. Avisale al admin — es configuración del lado del servidor.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Puedo editar o borrar un mensaje que envié?</summary>
+      <div class="faq-body">
+        <p>Todavía no. En esta versión los mensajes son solo texto y no se pueden editar ni borrar. Está en el <a href="roadmap.html">roadmap</a>.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Puedo mandar imágenes o archivos?</summary>
+      <div class="faq-body">
+        <p>Por ahora no: los mensajes son texto plano (hasta 2000 caracteres por defecto). Los adjuntos son una funcionalidad futura.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Me pide iniciar sesión de nuevo cada tanto.</summary>
+      <div class="faq-body">
+        <p>Las sesiones (tokens JWT) duran <strong>7 días</strong>. Después de ese plazo tenés que volver a ingresar tu usuario y contraseña. Es normal.</p>
+      </div>
+    </details>
+
+    <h2><span class="tag admin">Admin</span> Administración</h2>
+
+    <details class="faq">
+      <summary>Reclamé la instancia por error / con la cuenta equivocada. ¿Cómo lo revierto?</summary>
+      <div class="faq-body">
+        <p>El reclamo se guarda en la base de datos (tabla <code>settings</code>, clave <code>owner</code>). No hay un botón de “des-reclamar” en la app: para empezar de cero necesitás vaciar la base (borrar el volumen de Postgres) y volver a levantar. Hacé esto solo si la instancia todavía no tiene datos que te importen.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Cómo invito a más gente?</summary>
+      <div class="faq-body">
+        <p>Desde el cliente, como dueño, generás una invitación para tu servidor. Te devuelve un link <code>…?invite=&lt;token&gt;</code> que compartís por fuera. Cada link es de un solo uso y vence a las 24 h. Generá uno por persona.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Olvidé la contraseña de instancia.</summary>
+      <div class="faq-body">
+        <p>Está en el <code>config.json</code> del servidor, en <code>app.password</code>. Solo hace falta para el reclamo inicial; una vez reclamada la instancia, se usa el usuario/contraseña de admin, no esa clave. Si la cambiás en el archivo, reiniciá el proceso para que tome el nuevo valor.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>La voz no conecta para usuarios en ciertas redes.</summary>
+      <div class="faq-body">
+        <p>Por defecto solo hay un servidor <strong>STUN</strong> configurado, que no alcanza en redes con NAT simétrica. Es necesario contar con un servidor TURN.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Es seguro exponer esto a internet tal cual?</summary>
+      <div class="faq-body">
+        <p>Es una primera versión. Antes de exponerla públicamente, como mínimo: poné HTTPS con un reverse proxy, cambiá <code>JWT_SECRET</code> y <code>app.password</code> por valores fuertes, y tené en cuenta que <strong>todavía no hay rate limiting</strong> ni CORS restringido. Ver <a href="roadmap.html">limitaciones conocidas</a>.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>¿Dónde veo los logs?</summary>
+      <div class="faq-body">
+        <p>Van a la salida estándar (visibles con <code>docker compose logs -f app</code>). Opcionalmente, seteando <code>LOG_FILE</code> a una <strong>ruta absoluta</strong> se escriben también a un archivo. No hay rotación incorporada: usá <code>logrotate</code> o similar si el archivo crece.</p>
+      </div>
+    </details>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>Armonic - Manual de usuario</span>
+      <span><a href="index.html">← Volver al inicio</a></span>
+    </div>
+  </footer>
+</body>
+</html>

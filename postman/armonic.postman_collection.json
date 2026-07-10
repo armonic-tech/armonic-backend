@@ -1,0 +1,115 @@
+{
+  "info": {
+    "name": "Armonic",
+    "description": "Manual test collection for the Armonic backend HTTP API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "username", "value": "leo" },
+    { "key": "password", "value": "supersecret1" },
+    { "key": "jwt_token", "value": "" },
+    { "key": "claim_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Info",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/info", "host": ["{{base_url}}"], "path": ["info"] }
+      }
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) { pm.collectionVariables.set('jwt_token', data.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/signup", "host": ["{{base_url}}"], "path": ["auth", "signup"] }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) { pm.collectionVariables.set('jwt_token', data.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Claim",
+      "item": [
+        {
+          "name": "Claim Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.token) { pm.collectionVariables.set('claim_token', data.token); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/claim/status", "host": ["{{base_url}}"], "path": ["claim", "status"] }
+          }
+        },
+        {
+          "name": "Claim Server",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{jwt_token}}" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{claim_token}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/claim", "host": ["{{base_url}}"], "path": ["claim"] }
+          }
+        }
+      ]
+    }
+  ]
+}

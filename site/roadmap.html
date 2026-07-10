@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roadmap y limitaciones - Armonic</title>
+  <link rel="icon" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav-inner">
+      <a class="brand" href="index.html"><img class="logo" src="assets/logo.png" alt="Armonic"> Armonic</a>
+      <div class="nav-links">
+        <a href="index.html">Inicio</a>
+        <a href="guia.html">Guía de uso</a>
+        <a href="notas.html">Notas de liberación</a>
+        <a href="faq.html">FAQ</a>
+        <a href="roadmap.html" class="active">Roadmap</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <span class="eyebrow">Actualizaciones y roadmap</span>
+    <h1>Estado del proyecto</h1>
+
+    <h2>Qué ya funciona</h2>
+    <div class="card">
+      <ul class="status-list">
+        <li><span class="dot done"></span> <span>Chat de texto en tiempo real con historial (últimos mensajes por canal).</span></li>
+        <li><span class="dot done"></span> <span>Canales de voz por WebRTC con relay tipo SFU y renegociación por participante.</span></li>
+        <li><span class="dot done"></span> <span>Cliente multi-instancia (Android / Linux / Web) con sesión persistida por instancia.</span></li>
+        <li><span class="dot done"></span> <span>Flujo de reclamo, login e invitaciones de un solo uso.</span></li>
+        <li><span class="dot done"></span> <span>Moderación básica: expulsar de voz o del servidor.</span></li>
+        <li><span class="dot done"></span> <span>Despliegue con Docker Compose (app + Postgres).</span></li>
+      </ul>
+    </div>
+
+    <h2>Próximo / en evaluación</h2>
+    <div class="card">
+      <ul class="status-list">
+        <li><span class="dot planned"></span> <span>Editar y borrar mensajes.</span></li>
+        <li><span class="dot planned"></span> <span>Adjuntos (imágenes y archivos).</span></li>
+        <li><span class="dot planned"></span> <span>Indicador de “escribiendo” y recibos de lectura.</span></li>
+        <li><span class="dot planned"></span> <span>Notificar en tiempo real al usuario expulsado.</span></li>
+        <li><span class="dot planned"></span> <span>Apagado ordenado (drenar conexiones WS y sesiones de voz al reiniciar).</span></li>
+        <li><span class="dot planned"></span> <span>Paginación de historial de mensajes.</span></li>
+      </ul>
+    </div>
+    <p class="text-soft" style="font-size:14px;">El orden y el alcance pueden cambiar. Esta lista es indicativa, sujeta a cambios.</p>
+
+    <h2>Limitaciones conocidas ⚠️</h2>
+    <p>Cosas que <strong>hoy no están</strong> y conviene tener presentes, sobre todo si pensás exponer la instancia a internet:</p>
+    <div class="card">
+      <ul class="status-list">
+        <li><span class="dot gap"></span> <span><strong>Sin rate limiting.</strong> Login, reclamo e invitaciones no throttlean intentos repetidos: adiviná contraseñas o tokens no está mitigado a nivel app. Poné límites en el reverse proxy.</span></li>
+        <li><span class="dot gap"></span> <span><strong>CORS abierto</strong> (<code>Access-Control-Allow-Origin: *</code>) en todos los endpoints. Cómodo para desarrollo, no lo que querés en una exposición pública.</span></li>
+        <li><span class="dot gap"></span> <span><strong>Sin recuperación de contraseña ni verificación de email.</strong> Solo se valida unicidad de usuario y un mínimo de 8 caracteres.</span></li>
+        <li><span class="dot gap"></span> <span><strong>Sin apagado ordenado.</strong> Al reiniciar, las conexiones en curso se cortan de golpe.</span></li>
+        <li><span class="dot gap"></span> <span><strong>Logs sin rotación</strong> y sin envío a un sink externo: es stdout ± un archivo local. Gestionalo con <code>logrotate</code> si usás <code>LOG_FILE</code>.</span></li>
+        <li><span class="dot gap"></span> <span><strong>La voz puede requerir TURN.</strong> Solo hay STUN por defecto, en redes con NAT simétrica hay que configurar un servidor TURN propio.</span></li>
+      </ul>
+    </div>
+
+    <div class="callout warn">
+      <p><span class="label">Antes de producción:</span> HTTPS con reverse proxy, <code>JWT_SECRET</code> y <code>app.password</code> fuertes, rate limiting y CORS restringido en el proxy, backups de Postgres, y un TURN propio si tus usuarios lo necesitan.</p>
+    </div>
+
+    <hr>
+    <p class="legend text-soft">
+      <span class="legend-item"><span class="dot done"></span> Listo</span>
+      <span class="legend-item"><span class="dot planned"></span> Planeado</span>
+      <span class="legend-item"><span class="dot gap"></span> Limitación conocida</span>
+    </p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>Armonic - Manual de usuario</span>
+      <span><a href="index.html">← Volver al inicio</a></span>
+    </div>
+  </footer>
+</body>
+</html>
