@@ -49,3 +49,49 @@ func TestVoice(t *testing.T) {
 	vc.KickUser(u.ID)
 	require.Len(t, vc.Users, 0)
 }
+
+func TestVoice_MembersReflectVoiceState(t *testing.T) {
+	vc := NewVoiceChannel("voice-id", "server-id")
+
+	loud := &user.User{ID: "loud", DisplayName: "Loud", Signaling: &MockSocket{}}
+	muted := &user.User{ID: "muted", DisplayName: "Muted", Signaling: &MockSocket{}}
+	deaf := &user.User{ID: "deaf", DisplayName: "Deaf", Signaling: &MockSocket{}}
+	muted.SetVoiceState(true, false)
+	deaf.SetVoiceState(false, true) // deafen implies mute
+
+	vc.AddUser(loud)
+	vc.AddUser(muted)
+	vc.AddUser(deaf)
+
+	byID := map[string]Member{}
+	for _, m := range vc.Members() {
+		byID[m.ID] = m
+	}
+	require.Len(t, byID, 3)
+
+	require.False(t, byID["loud"].Muted)
+	require.False(t, byID["loud"].Deafened)
+
+	require.True(t, byID["muted"].Muted)
+	require.False(t, byID["muted"].Deafened)
+
+	require.True(t, byID["deaf"].Muted)
+	require.True(t, byID["deaf"].Deafened)
+}
+
+func TestVoice_BroadcastExcludesSender(t *testing.T) {
+	vc := NewVoiceChannel("voice-id", "server-id")
+
+	u1 := &user.User{ID: "user-1", Signaling: &MockSocket{}}
+	u2 := &user.User{ID: "user-2", Signaling: &MockSocket{}}
+	u3 := &user.User{ID: "user-3", Signaling: &MockSocket{}}
+	vc.AddUser(u1)
+	vc.AddUser(u2)
+	vc.AddUser(u3)
+
+	vc.Broadcast("user-1", map[string]any{"type": "voice-state"})
+
+	require.Empty(t, u1.Signaling.(*MockSocket).jsonPayloads)
+	require.Len(t, u2.Signaling.(*MockSocket).jsonPayloads, 1)
+	require.Len(t, u3.Signaling.(*MockSocket).jsonPayloads, 1)
+}

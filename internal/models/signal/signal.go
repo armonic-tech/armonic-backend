@@ -25,6 +25,10 @@ type Message struct {
 	// kick-voice / kick-server
 	TargetUserID string `json:"targetUserId,omitempty"`
 
+	// voice-state
+	Muted    bool `json:"muted,omitempty"`
+	Deafened bool `json:"deafened,omitempty"`
+
 	// WebRTC signaling (join-voice / answer / candidate)
 	SDP       *webrtc.SessionDescription `json:"sdp,omitempty"`
 	Candidate *webrtc.ICECandidateInit   `json:"candidate,omitempty"`

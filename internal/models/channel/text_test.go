@@ -34,7 +34,8 @@ func TestText(t *testing.T) {
 //
 
 type MockSocket struct {
-	messages [][]byte
+	messages     [][]byte
+	jsonPayloads []any
 }
 
 func (m *MockSocket) Send(data []byte) error {
@@ -43,6 +44,7 @@ func (m *MockSocket) Send(data []byte) error {
 }
 
 func (m *MockSocket) SendJSON(v any) error {
+	m.jsonPayloads = append(m.jsonPayloads, v)
 	return nil
 }
 

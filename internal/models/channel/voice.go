@@ -36,7 +36,12 @@ func (vc *VoiceChannel) Members() []Member {
 
 	members := make([]Member, 0, len(vc.Users))
 	for _, u := range vc.Users {
-		members = append(members, Member{ID: u.ID, DisplayName: u.DisplayName})
+		members = append(members, Member{
+			ID:          u.ID,
+			DisplayName: u.DisplayName,
+			Muted:       u.IsMuted(),
+			Deafened:    u.IsDeafened(),
+		})
 	}
 	return members
 }
@@ -61,12 +66,23 @@ func (vc *VoiceChannel) KickUser(userID string) {
 	u.Media.Close()
 }
 
-func (vc *VoiceChannel) ForwardTrack(senderID string, track *webrtc.TrackRemote) {
+func (vc *VoiceChannel) Broadcast(senderID string, msg any) {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+	for id, u := range vc.Users {
+		if id == senderID {
+			continue
+		}
+		u.Signaling.SendJSON(msg)
+	}
+}
+
+func (vc *VoiceChannel) ForwardTrack(sender *user.User, track *webrtc.TrackRemote) {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()
 
 	for id, u := range vc.Users {
-		if id == senderID {
+		if id == sender.ID {
 			continue
 		}
 
@@ -80,7 +96,7 @@ func (vc *VoiceChannel) ForwardTrack(senderID string, track *webrtc.TrackRemote)
 			continue
 		}
 
-		sender, err := u.Media.AddTrack(localTrack)
+		rtpSender, err := u.Media.AddTrack(localTrack)
 		if err != nil {
 			slog.Error("error adding track", logger.User(id), "error", err)
 			continue
@@ -106,18 +122,22 @@ func (vc *VoiceChannel) ForwardTrack(senderID string, track *webrtc.TrackRemote)
 		go func() {
 			buf := make([]byte, 1500)
 			for {
-				if _, _, err := sender.Read(buf); err != nil {
+				if _, _, err := rtpSender.Read(buf); err != nil {
 					return
 				}
 			}
 		}()
 
+		receiver := u
 		go func() {
 			buf := make([]byte, 1500)
 			for {
 				n, _, err := track.Read(buf) // check
 				if err != nil {
 					return
+				}
+				if sender.IsMuted() || receiver.IsDeafened() {
+					continue
 				}
 				if _, err := localTrack.Write(buf[:n]); err != nil {
 					return

@@ -10,4 +10,6 @@ type ChannelInfo struct {
 type Member struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
+	Muted       bool   `json:"muted"`
+	Deafened    bool   `json:"deafened"`
 }
