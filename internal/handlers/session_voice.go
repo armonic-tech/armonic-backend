@@ -42,7 +42,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
 	rtcConn.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		slog.DebugContext(s.ctx, "track received", logger.User(u.ID), "kind", track.Kind())
-		ch.ForwardTrack(u.ID, track)
+		ch.ForwardTrack(u, track)
 	})
 
 	offer, err := rtcConn.CreateOffer()
@@ -80,6 +80,23 @@ func (s *connSession) handleCandidate(msg signal.Message) {
 	if err := s.user.Media.AddICECandidate(*msg.Candidate); err != nil {
 		slog.ErrorContext(s.ctx, "handleCandidate error", logger.User(s.user.ID), "error", err)
 	}
+}
+
+func (s *connSession) handleVoiceState(msg signal.Message) {
+	muted, deafened := s.user.SetVoiceState(msg.Muted, msg.Deafened)
+	if s.user.VoiceChannelID == "" {
+		return
+	}
+	srv := s.h.app.GetOrCreateServer(s.user.ServerID)
+	ch := srv.GetOrCreateVoiceChannel(s.user.VoiceChannelID)
+	ch.Broadcast(s.user.ID, map[string]any{
+		"type":      "voice-state",
+		"userId":    s.user.ID,
+		"channelId": s.user.VoiceChannelID,
+		"muted":     muted,
+		"deafened":  deafened,
+	})
+	slog.InfoContext(s.ctx, "voice state updated", logger.User(s.user.ID), logger.Channel(s.user.VoiceChannelID), "muted", muted, "deafened", deafened)
 }
 
 func (s *connSession) handleKickVoice(msg signal.Message) {
