@@ -26,7 +26,8 @@ func (m *mockRTCConn) AddICECandidate(webrtc.ICECandidateInit) error        { re
 func (m *mockRTCConn) AddTrack(*webrtc.TrackLocalStaticRTP) (*webrtc.RTPSender, error) {
 	return nil, nil
 }
-func (m *mockRTCConn) OnTrack(func(*webrtc.TrackRemote, *webrtc.RTPReceiver)) {}
+func (m *mockRTCConn) OnTrack(func(*webrtc.TrackRemote, *webrtc.RTPReceiver))   {}
+func (m *mockRTCConn) OnConnectionStateChange(func(webrtc.PeerConnectionState)) {}
 
 func TestVoice(t *testing.T) {
 	u := user.User{
@@ -77,6 +78,29 @@ func TestVoice_MembersReflectVoiceState(t *testing.T) {
 
 	require.True(t, byID["deaf"].Muted)
 	require.True(t, byID["deaf"].Deafened)
+}
+
+func TestVoice_RemoveUserIf(t *testing.T) {
+	vc := NewVoiceChannel("voice-id", "server-id")
+	u := &user.User{ID: "u", Signaling: &MockSocket{}}
+	vc.AddUser(u)
+
+	other := &user.User{ID: "u", Signaling: &MockSocket{}}
+	require.False(t, vc.RemoveUserIf("u", other), "wrong identity must not remove")
+	require.Len(t, vc.Users, 1)
+
+	require.True(t, vc.RemoveUserIf("u", u))
+	require.Len(t, vc.Users, 0)
+
+	require.False(t, vc.RemoveUserIf("u", u), "second call is a no-op (dedup)")
+
+	// rejoin: a stale reference to the old session must not evict the new one
+	rejoined := &user.User{ID: "u", Signaling: &MockSocket{}}
+	vc.AddUser(rejoined)
+	require.False(t, vc.RemoveUserIf("u", u), "stale session must not evict rejoin")
+	require.Len(t, vc.Users, 1)
+	require.True(t, vc.RemoveUserIf("u", rejoined))
+	require.Len(t, vc.Users, 0)
 }
 
 func TestVoice_BroadcastExcludesSender(t *testing.T) {

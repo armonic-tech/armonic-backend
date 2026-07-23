@@ -62,3 +62,7 @@ func (w *WebRTCConn) AddTrack(track *webrtc.TrackLocalStaticRTP) (*webrtc.RTPSen
 func (w *WebRTCConn) OnTrack(f func(*webrtc.TrackRemote, *webrtc.RTPReceiver)) {
 	w.pc.OnTrack(f)
 }
+
+func (w *WebRTCConn) OnConnectionStateChange(f func(webrtc.PeerConnectionState)) {
+	w.pc.OnConnectionStateChange(f)
+}

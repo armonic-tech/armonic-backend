@@ -52,6 +52,16 @@ func (vc *VoiceChannel) RemoveUser(userID string) {
 	delete(vc.Users, userID)
 }
 
+func (vc *VoiceChannel) RemoveUserIf(userID string, u *user.User) bool {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if vc.Users[userID] != u {
+		return false
+	}
+	delete(vc.Users, userID)
+	return true
+}
+
 func (vc *VoiceChannel) KickUser(userID string) {
 	vc.mu.Lock()
 	u, exists := vc.Users[userID]

@@ -45,6 +45,23 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		ch.ForwardTrack(u, track)
 	})
 
+	rtcConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		switch state {
+		case webrtc.PeerConnectionStateFailed,
+			webrtc.PeerConnectionStateClosed,
+			webrtc.PeerConnectionStateDisconnected:
+			if ch.RemoveUserIf(u.ID, u) {
+				ch.Broadcast(u.ID, map[string]any{
+					"type":      "voice-leave",
+					"userId":    u.ID,
+					"channelId": msg.ChannelID,
+				})
+				slog.InfoContext(s.ctx, "voice presence dropped on rtc state change", logger.User(u.ID), logger.Channel(msg.ChannelID), "state", state.String())
+			}
+			rtcConn.Close()
+		}
+	})
+
 	offer, err := rtcConn.CreateOffer()
 	if err != nil {
 		slog.ErrorContext(s.ctx, "join-voice offer error", logger.User(s.user.ID), "error", err)
@@ -127,15 +144,34 @@ func (s *connSession) handleKickServer(msg signal.Message) {
 	s.conn.SendJSON(map[string]any{"type": "user-kicked", "targetUserId": msg.TargetUserID})
 }
 
-func (s *connSession) handleDisconnect() {
-	if s.user.VoiceChannelID != "" {
-		srv := s.h.app.GetOrCreateServer(s.user.ServerID)
-		ch := srv.GetOrCreateVoiceChannel(s.user.VoiceChannelID)
-		ch.RemoveUser(s.user.ID)
+func (s *connSession) leaveVoice() {
+	if s.user.VoiceChannelID == "" {
+		return
 	}
-	s.h.app.RemoveConnectedUser(s.user.ID)
+	channelID := s.user.VoiceChannelID
+	ch := s.h.app.GetOrCreateServer(s.user.ServerID).GetOrCreateVoiceChannel(channelID)
+	removed := ch.RemoveUserIf(s.user.ID, s.user)
+	s.user.VoiceChannelID = ""
 	if s.user.Media != nil {
 		s.user.Media.Close()
+		s.user.Media = nil
 	}
+	if removed {
+		ch.Broadcast(s.user.ID, map[string]any{
+			"type":      "voice-leave",
+			"userId":    s.user.ID,
+			"channelId": channelID,
+		})
+	}
+}
+
+func (s *connSession) handleLeaveVoice() {
+	s.leaveVoice()
+	slog.InfoContext(s.ctx, "user left voice", logger.User(s.user.ID))
+}
+
+func (s *connSession) handleDisconnect() {
+	s.leaveVoice()
+	s.h.app.RemoveConnectedUser(s.user.ID)
 	slog.InfoContext(s.ctx, "user disconnected", logger.User(s.user.ID))
 }
