@@ -151,6 +151,8 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleCandidate(msg)
 		case "voice-state":
 			s.handleVoiceState(msg)
+		case "leave-voice":
+			s.handleLeaveVoice()
 		case "create-server":
 			s.handleCreateServer(msg)
 		case "join-server":

@@ -47,4 +47,5 @@ type RTCConn interface {
 	AddICECandidate(webrtc.ICECandidateInit) error
 	AddTrack(track *webrtc.TrackLocalStaticRTP) (*webrtc.RTPSender, error)
 	OnTrack(func(*webrtc.TrackRemote, *webrtc.RTPReceiver))
+	OnConnectionStateChange(func(webrtc.PeerConnectionState))
 }
