@@ -6,3 +6,8 @@ type ChannelInfo struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 }
+
+type Member struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+}

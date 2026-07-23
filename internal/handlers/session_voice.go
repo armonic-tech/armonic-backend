@@ -31,6 +31,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 
 	u := &user.User{
 		ID:             s.user.ID,
+		DisplayName:    s.user.DisplayName,
 		Signaling:      s.conn,
 		Media:          rtcConn,
 		VoiceChannelID: msg.ChannelID,

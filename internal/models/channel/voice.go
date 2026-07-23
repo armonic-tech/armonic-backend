@@ -30,6 +30,17 @@ func (vc *VoiceChannel) AddUser(u *user.User) {
 	vc.Users[u.ID] = u
 }
 
+func (vc *VoiceChannel) Members() []Member {
+	vc.mu.RLock()
+	defer vc.mu.RUnlock()
+
+	members := make([]Member, 0, len(vc.Users))
+	for _, u := range vc.Users {
+		members = append(members, Member{ID: u.ID, DisplayName: u.DisplayName})
+	}
+	return members
+}
+
 func (vc *VoiceChannel) RemoveUser(userID string) {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()

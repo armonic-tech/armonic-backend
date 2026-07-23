@@ -3,6 +3,7 @@ package app
 import (
 	"sync"
 
+	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/server"
 )
 
@@ -28,6 +29,24 @@ func (a *App) GetOrCreateServer(id string) *server.Server {
 	s := server.NewServer(id)
 	a.Servers[id] = s
 	return s
+}
+
+func (a *App) getServer(id string) *server.Server {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.Servers[id]
+}
+
+func (a *App) VoiceMembers(serverID, channelID string) []channel.Member {
+	srv := a.getServer(serverID)
+	if srv == nil {
+		return nil
+	}
+	vc := srv.GetVoiceChannel(channelID)
+	if vc == nil {
+		return nil
+	}
+	return vc.Members()
 }
 
 func (a *App) RemoveConnectedUser(userID string) {
