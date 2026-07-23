@@ -49,6 +49,12 @@ func (s *Server) BroadcastMessage(senderID string, msg any) {
 	}
 }
 
+func (s *Server) GetVoiceChannel(id string) *channel.VoiceChannel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.VoiceChannels[id]
+}
+
 func (s *Server) GetOrCreateVoiceChannel(id string) *channel.VoiceChannel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
