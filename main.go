@@ -14,6 +14,23 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
+// @title           Armonic API
+// @version         1.0
+// @description     Armonic API backend server.
+
+// @securityDefinitions.apikey  BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                 Type "Bearer" followed by a space and the JWT returned by /auth/login. Example: "Bearer eyJhbGci..."
+
+// @tag.name        Users
+// @tag.description User endpoints
+
+// @tag.name        Server
+// @tag.description Server endpoint
+
+// @tag.name        Channel
+// @tag.description Channel endpoint
 func main() {
 	ctx := context.Background()
 	cfg, err := config.Load()

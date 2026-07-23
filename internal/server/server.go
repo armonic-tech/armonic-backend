@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rs/cors"
+
 	"github.com/armonic-tech/armonic-backend/config"
 	"github.com/armonic-tech/armonic-backend/internal/auth"
 	"github.com/armonic-tech/armonic-backend/internal/claim"
@@ -12,6 +14,7 @@ import (
 	"github.com/armonic-tech/armonic-backend/internal/models/app"
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
 	"github.com/google/uuid"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 // defaultServerSettingsKey stores the ID of the single bootstrap server
@@ -20,8 +23,9 @@ import (
 const defaultServerSettingsKey = "default_server_id"
 
 type Server struct {
-	addr string
-	mux  *http.ServeMux
+	addr           string
+	mux            *http.ServeMux
+	allowedOrigins []string
 }
 
 type memberChecker interface {
@@ -162,6 +166,7 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	// public
 	router.Public("/ws", wsHandler.HandleWebSocket) // WS authenticates via its first "auth" message, not a header
 	router.Public("/info", handlers.InfoHandler(cfg, memberCounter, defaultServerID, claimed))
+	router.Public("GET /swagger/", httpSwagger.WrapHandler)
 	router.Public("POST /claim/password", handlers.ClaimPasswordHandler(claimMgr, claimed))
 	router.Public("POST /claim/register", handlers.ClaimRegisterHandler(claimMgr, authSvc, repos.Settings(), repos.Servers(), repos.Memberships(), defaultServerID, claimed))
 	router.Public("POST /auth/login", handlers.LoginHandler(authSvc, claimed))
@@ -178,11 +183,17 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	// JWT + ownership
 	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
 
-	return &Server{addr: ":" + cfg.Port, mux: router.mux}, nil
+	return &Server{addr: ":" + cfg.Port, mux: router.mux, allowedOrigins: cfg.AllowedOrigins}, nil
 }
 
 func (s *Server) ListenAndServe() error {
-	return http.ListenAndServe(s.addr, s.mux)
+	c := cors.New(cors.Options{
+		AllowedOrigins:   s.allowedOrigins,
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: len(s.allowedOrigins) > 0,
+	})
+	return http.ListenAndServe(s.addr, c.Handler(s.mux))
 }
 
 // memberCounterAdapter binds handlers.MemberCounter (a no-arg CountAll) to a

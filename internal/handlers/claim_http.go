@@ -26,15 +26,6 @@ func ClaimPasswordHandler(mgr *claim.Manager, claimed func() bool) http.HandlerF
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		cors(w)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		if claimed() {
 			http.Error(w, "server already claimed", http.StatusConflict)
 			return
@@ -68,15 +59,6 @@ func ClaimRegisterHandler(mgr *claim.Manager, auth RegisterAuthenticator, settin
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		cors(w)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		if claimed() {
 			http.Error(w, "server already claimed", http.StatusConflict)
 			return

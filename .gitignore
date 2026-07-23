@@ -1,2 +1,3 @@
 CLAUDE.md
-docs/ai
+docs/*
+docker-compose.dev.yml
