@@ -134,13 +134,41 @@ func TestChannelRepo_Create(t *testing.T) {
 	err = repo.Create(ctx, "ch-1", "sv-1", "general", "text")
 	require.NoError(t, err)
 
-	channels, err := repo.GetByServer(ctx, "sv-1")
+	channels, err := repo.GetChannelByServer(ctx, "sv-1")
 	require.NoError(t, err)
 
 	require.Len(t, channels, 1)
 	require.Equal(t, "ch-1", channels[0].ID)
 	require.Equal(t, "general", channels[0].Name)
 	require.Equal(t, "text", channels[0].Type)
+}
+
+func TestMembershipRepo_IsMemberByChannel(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	channels := NewChannelRepo(tx)
+	members := NewMembershipRepo(tx)
+
+	require.NoError(t, channels.Create(ctx, "ch-1", "sv-1", "general", "text"))
+	require.NoError(t, members.Add(ctx, "user-1", "sv-1"))
+
+	// user-1 is a member of sv-1, which owns ch-1: true
+	ok, err := members.IsMemberByChannel(ctx, "user-1", "ch-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// user-2 is not a member of that server: false
+	ok, err = members.IsMemberByChannel(ctx, "user-2", "ch-1")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// unknown channel: false (no row, not an error)
+	ok, err = members.IsMemberByChannel(ctx, "user-1", "ch-unknown")
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 func TestInviteRepo(t *testing.T) {

@@ -3,16 +3,71 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	authpkg "github.com/armonic-tech/armonic-backend/internal/auth"
 	"github.com/armonic-tech/armonic-backend/internal/models/invite"
 	"github.com/armonic-tech/armonic-backend/pkg/logger"
 )
 
+const inviteTTL = 24 * time.Hour
+
 type InviteLookup interface {
 	Get(ctx context.Context, token string) (*invite.Invite, error)
+}
+
+// InviteCreator mints a single-use invite token for a server.
+type InviteCreator interface {
+	Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
+}
+
+type InviteCreatedResponse struct {
+	InviteToken string `json:"inviteToken"`
+	URL         string `json:"url"`
+}
+
+// CreateInvite mints a single-use invite for server {id}. Replaces the old
+// `create-invite` WS message. Registered with router.Owner, so ownership of
+// {id} is already verified before this runs; the invite's creator is the
+// authenticated caller (UserID(ctx)).
+//
+// @Summary      Create invite
+// @Description  Owner-only. Mint a single-use invite link for a server.
+// @Tags         Invite
+// @Produce      json
+// @Param        id path string true "Server ID"
+// @Success      201 {object} InviteCreatedResponse
+// @Failure      401 {string} string "unauthorized"
+// @Failure      403 {string} string "forbidden"
+// @Security     BearerAuth
+// @Router       /server/{id}/invite [post]
+func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		serverID := r.PathValue("id")
+		userID, ok := UserID(ctx)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		token, err := invites.Create(ctx, serverID, userID, inviteTTL)
+		if err != nil {
+			slog.ErrorContext(ctx, "create-invite error", logger.User(userID), logger.Server(serverID), "error", err)
+			http.Error(w, "error creating invite", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(InviteCreatedResponse{
+			InviteToken: token,
+			URL:         fmt.Sprintf("%s?invite=%s", baseURL, token),
+		})
+	}
 }
 
 func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
@@ -26,7 +81,6 @@ func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
 		token := r.URL.Query().Get("token")
 		inv, err := invites.Get(r.Context(), token)
 		if err != nil {

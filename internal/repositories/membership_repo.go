@@ -35,6 +35,19 @@ func (r *MembershipRepo) IsMember(ctx context.Context, userID, serverID string) 
 	return exists, err
 }
 
+func (r *MembershipRepo) IsMemberByChannel(ctx context.Context, userID, channelID string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM channels c
+			JOIN memberships m ON m.server_id = c.server_id
+			WHERE c.id = $1 AND m.user_id = $2
+		)`,
+		channelID, userID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (r *MembershipRepo) GetByUser(ctx context.Context, userID string) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT server_id FROM memberships WHERE user_id = $1`,

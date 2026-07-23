@@ -14,7 +14,6 @@ import (
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
 	db "github.com/armonic-tech/armonic-backend/migrations"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
@@ -110,7 +109,6 @@ func TestClaimAndInviteFlow(t *testing.T) {
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 	client := ts.Client()
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 
 	t.Run("login and claim/register are refused before claiming", func(t *testing.T) {
 		status := postJSON(t, client, ts.URL+"/auth/login", map[string]string{"username": "x", "password": "irrelevant"}, nil)
@@ -174,27 +172,33 @@ func TestClaimAndInviteFlow(t *testing.T) {
 
 	var inviteToken string
 
-	t.Run("admin creates an invite over WS (proves SetOwner ran)", func(t *testing.T) {
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	t.Run("admin creates an invite over HTTP (owner-gated; proves SetOwner ran)", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/server/"+defaultServerID+"/invite", nil)
 		require.NoError(t, err)
-		defer conn.Close()
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		require.NoError(t, conn.WriteJSON(map[string]any{"type": "auth", "token": adminToken, "name": "Admin"}))
-		var authResp struct {
-			Type string `json:"type"`
-		}
-		require.NoError(t, conn.ReadJSON(&authResp))
-		require.Equal(t, "auth-ok", authResp.Type)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-		require.NoError(t, conn.WriteJSON(map[string]any{"type": "create-invite", "serverId": defaultServerID}))
 		var inviteResp struct {
-			Type        string `json:"type"`
 			InviteToken string `json:"inviteToken"`
+			URL         string `json:"url"`
 		}
-		require.NoError(t, conn.ReadJSON(&inviteResp))
-		require.Equal(t, "invite-created", inviteResp.Type)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&inviteResp))
 		require.NotEmpty(t, inviteResp.InviteToken)
+		require.Contains(t, inviteResp.URL, inviteResp.InviteToken)
 		inviteToken = inviteResp.InviteToken
+	})
+
+	t.Run("creating an invite without a token is rejected (401)", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/server/"+defaultServerID+"/invite", nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req) // no Authorization header
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("invite/status reports the invite as valid", func(t *testing.T) {

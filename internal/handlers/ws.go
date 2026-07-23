@@ -2,19 +2,18 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
+
 	"github.com/armonic-tech/armonic-backend/config"
 	"github.com/armonic-tech/armonic-backend/internal/auth"
 	"github.com/armonic-tech/armonic-backend/internal/models/app"
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/invite"
 	"github.com/armonic-tech/armonic-backend/internal/models/message"
-	"github.com/armonic-tech/armonic-backend/internal/models/server"
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
 	"github.com/armonic-tech/armonic-backend/internal/models/user"
 	"github.com/armonic-tech/armonic-backend/internal/transport/ws"
-	"log/slog"
-	"net/http"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -25,7 +24,6 @@ var upgrader = websocket.Upgrader{
 
 type MessageRepo interface {
 	Save(ctx context.Context, msg message.Message) error
-	GetByChannel(ctx context.Context, serverID, channelID string, limit int) ([]message.Message, error)
 }
 
 type MembershipRepo interface {
@@ -38,16 +36,14 @@ type MembershipRepo interface {
 type ServerRepo interface {
 	Create(ctx context.Context, id, name, ownerID string) error
 	IsOwner(ctx context.Context, serverID, userID string) (bool, error)
-	GetByIDs(ctx context.Context, ids []string) ([]server.ServerInfo, error)
 }
 
 type ChannelRepo interface {
 	Create(ctx context.Context, id, serverID, name, chType string) error
-	GetByServer(ctx context.Context, serverID string) ([]channel.ChannelInfo, error)
+	GetChannelByServer(ctx context.Context, serverID string) ([]channel.ChannelInfo, error)
 }
 
 type InviteRepo interface {
-	Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
 	Get(ctx context.Context, token string) (*invite.Invite, error)
 	MarkUsed(ctx context.Context, token string) error
 }
@@ -70,11 +66,10 @@ type WSHandler struct {
 	inviteRepo     InviteRepo
 	userRepo       UserRepo
 	auth           Authenticator
-	baseURL        string
 	cfg            config.Config
 }
 
-func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, v Authenticator, baseURL string, cfg config.Config) *WSHandler {
+func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, v Authenticator, cfg config.Config) *WSHandler {
 	return &WSHandler{
 		app:            a,
 		messageRepo:    msg,
@@ -84,7 +79,6 @@ func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server
 		inviteRepo:     inv,
 		userRepo:       users,
 		auth:           v,
-		baseURL:        baseURL,
 		cfg:            cfg,
 	}
 }
@@ -96,6 +90,9 @@ type connSession struct {
 	ctx  context.Context
 }
 
+// HandleWebSocket runs the per-connection read loop
+// the first message must be "auth".
+// reference: docs/ai/ws-protocol.md, docs/ai/asyncapi.yaml.
 func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -143,22 +140,14 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleCandidate(msg)
 		case "create-server":
 			s.handleCreateServer(msg)
-		case "create-invite":
-			s.handleCreateInvite(msg)
 		case "join-server":
 			s.handleJoinServer(msg)
 		case "text-message":
 			s.handleTextMessage(msg)
-		case "get-servers":
-			s.handleGetServers()
-		case "get-channels":
-			s.handleGetChannels(msg)
 		case "kick-voice":
 			s.handleKickVoice(msg)
 		case "kick-server":
 			s.handleKickServer(msg)
-		case "get-messages":
-			s.handleGetMessages(msg)
 		}
 	}
 }

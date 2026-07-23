@@ -19,7 +19,7 @@ type Message struct {
 	// text-message / create-server
 	Content string `json:"content,omitempty"`
 
-	// create-invite / join-server
+	// join-server
 	InviteToken string `json:"inviteToken,omitempty"`
 
 	// kick-voice / kick-server

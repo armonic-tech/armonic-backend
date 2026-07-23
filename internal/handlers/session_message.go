@@ -43,17 +43,3 @@ func (s *connSession) handleTextMessage(msg signal.Message) {
 	}
 	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage(s.user.ID, broadcast)
 }
-
-func (s *connSession) handleGetMessages(msg signal.Message) {
-	ok, err := s.h.membershipRepo.IsMember(s.ctx, s.user.ID, msg.ServerID)
-	if err != nil || !ok {
-		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
-		return
-	}
-	msgs, err := s.h.messageRepo.GetByChannel(s.ctx, msg.ServerID, msg.ChannelID, 50)
-	if err != nil {
-		slog.ErrorContext(s.ctx, "error getting messages", logger.User(s.user.ID), logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "error", err)
-		return
-	}
-	s.conn.SendJSON(map[string]any{"type": "messages", "messages": msgs})
-}

@@ -1,12 +1,11 @@
 package handlers
 
 import (
-	"fmt"
+	"log/slog"
+
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
 	"github.com/armonic-tech/armonic-backend/pkg/logger"
-	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -40,24 +39,6 @@ func (s *connSession) handleCreateServer(msg signal.Message) {
 	})
 }
 
-func (s *connSession) handleCreateInvite(msg signal.Message) {
-	ok, err := s.h.serverRepo.IsOwner(s.ctx, msg.ServerID, s.user.ID)
-	if err != nil || !ok {
-		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
-		return
-	}
-	token, err := s.h.inviteRepo.Create(s.ctx, msg.ServerID, s.user.ID, 24*time.Hour)
-	if err != nil {
-		slog.ErrorContext(s.ctx, "create-invite error", logger.User(s.user.ID), logger.Server(msg.ServerID), "error", err)
-		return
-	}
-	s.conn.SendJSON(map[string]any{
-		"type":        "invite-created",
-		"inviteToken": token,
-		"url":         fmt.Sprintf("%s?invite=%s", s.h.baseURL, token),
-	})
-}
-
 func (s *connSession) handleJoinServer(msg signal.Message) {
 	inv, err := s.h.inviteRepo.Get(s.ctx, msg.InviteToken)
 	if err != nil || inv == nil {
@@ -72,7 +53,7 @@ func (s *connSession) handleJoinServer(msg signal.Message) {
 		slog.ErrorContext(s.ctx, "join-server error marking invite used", logger.User(s.user.ID), logger.Server(inv.ServerID), "error", err)
 	}
 	s.h.app.GetOrCreateServer(inv.ServerID).AddConnectedUser(s.user)
-	channels, err := s.h.channelRepo.GetByServer(s.ctx, inv.ServerID)
+	channels, err := s.h.channelRepo.GetChannelByServer(s.ctx, inv.ServerID)
 	if err != nil {
 		slog.ErrorContext(s.ctx, "join-server channels error", logger.Server(inv.ServerID), "error", err)
 	}
@@ -82,32 +63,4 @@ func (s *connSession) handleJoinServer(msg signal.Message) {
 		"serverId": inv.ServerID,
 		"channels": channels,
 	})
-}
-
-func (s *connSession) handleGetServers() {
-	serverIDs, err := s.h.membershipRepo.GetByUser(s.ctx, s.user.ID)
-	if err != nil {
-		slog.ErrorContext(s.ctx, "get-servers error", logger.User(s.user.ID), "error", err)
-		return
-	}
-	servers, err := s.h.serverRepo.GetByIDs(s.ctx, serverIDs)
-	if err != nil {
-		slog.ErrorContext(s.ctx, "get-servers fetch error", logger.User(s.user.ID), "error", err)
-		return
-	}
-	s.conn.SendJSON(map[string]any{"type": "servers", "servers": servers})
-}
-
-func (s *connSession) handleGetChannels(msg signal.Message) {
-	ok, err := s.h.membershipRepo.IsMember(s.ctx, s.user.ID, msg.ServerID)
-	if err != nil || !ok {
-		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
-		return
-	}
-	channels, err := s.h.channelRepo.GetByServer(s.ctx, msg.ServerID)
-	if err != nil {
-		slog.ErrorContext(s.ctx, "get-channels error", logger.Server(msg.ServerID), "error", err)
-		return
-	}
-	s.conn.SendJSON(map[string]any{"type": "channels", "serverId": msg.ServerID, "channels": channels})
 }
