@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/armonic-tech/armonic-backend/config"
 	"github.com/armonic-tech/armonic-backend/internal/auth"
@@ -18,8 +19,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+func newUpgrader(allowedOrigins []string) websocket.Upgrader {
+	return websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" || len(allowedOrigins) == 0 {
+				return true
+			}
+			return slices.Contains(allowedOrigins, origin)
+		},
+	}
 }
 
 type MessageRepo interface {
@@ -67,6 +76,7 @@ type WSHandler struct {
 	userRepo       UserRepo
 	auth           Authenticator
 	cfg            config.Config
+	upgrader       websocket.Upgrader
 }
 
 func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, v Authenticator, cfg config.Config) *WSHandler {
@@ -80,6 +90,7 @@ func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server
 		userRepo:       users,
 		auth:           v,
 		cfg:            cfg,
+		upgrader:       newUpgrader(cfg.AllowedOrigins),
 	}
 }
 
@@ -94,7 +105,7 @@ type connSession struct {
 // the first message must be "auth".
 // reference: docs/ai/ws-protocol.md, docs/ai/asyncapi.yaml.
 func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "ws upgrade error", "error", err)
 		return

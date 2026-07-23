@@ -19,6 +19,7 @@ type Config struct {
 	DBPath            string
 	MaxMsgLen         int
 	ClaimPassword     string
+	AllowedOrigins    []string
 	RTC               struct {
 		StunServers []string `json:"stun_servers"`
 		TurnServers []string `json:"turn_servers"`
@@ -45,7 +46,7 @@ func Load() (Config, error) {
 		JWTSecret:         getEnv("JWT_SECRET", "change-me"),
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
 		LogFile:           getEnv("LOG_FILE", ""),
-		DBPath:            getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/armonic?sslmode=disable"),
+		DBPath:            getEnv("DATABASE_URL", "postgres://armonic:armonic@localhost:5432/armonic?sslmode=disable"),
 		MaxMsgLen:         maxLen,
 	}
 
@@ -56,6 +57,14 @@ func Load() (Config, error) {
 	turnServers := getEnv("TURN_SERVERS", "")
 	if turnServers != "" {
 		cfg.RTC.TurnServers = strings.Split(turnServers, ",")
+	}
+
+	if origins := getEnv("CORS_ALLOWED_ORIGINS", ""); origins != "" {
+		for o := range strings.SplitSeq(origins, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)
+			}
+		}
 	}
 
 	configPath := getEnv("CONFIG_FILE", "config.json")

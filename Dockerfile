@@ -17,10 +17,5 @@ WORKDIR /app
 
 COPY --from=builder /out/armonic ./armonic
 
-# config.json (app.password, the instance claim secret) is NOT baked into
-# this image — it's excluded from the build context by .dockerignore on
-# purpose, so a real secret never ends up in an image layer. The process
-# fails fast at startup if it's missing (config.Load), so it must be
-# supplied as a bind mount at /app/config.json (see docker-compose.yml).
 EXPOSE 8080
 ENTRYPOINT ["./armonic"]

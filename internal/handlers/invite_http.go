@@ -72,15 +72,6 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 
 func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cors(w)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		token := r.URL.Query().Get("token")
 		inv, err := invites.Get(r.Context(), token)
 		if err != nil {
@@ -109,15 +100,6 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		cors(w)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		if !claimed() {
 			http.Error(w, "server not claimed yet", http.StatusForbidden)
 			return
