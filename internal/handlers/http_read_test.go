@@ -83,6 +83,26 @@ func TestGetMyServers_ScopedToCaller(t *testing.T) {
 	require.Len(t, got, 2)
 }
 
+func TestGetMyServers_ExposesOwnerID(t *testing.T) {
+	memberships := fakeMemberships{ids: []string{validUUID, validUUID2}}
+	servers := fakeServers{infos: []server.ServerInfo{
+		{ID: validUUID, Name: "A", OwnerID: "user-1"},
+		{ID: validUUID2, Name: "B"},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/server", nil)
+	req = req.WithContext(WithUserID(req.Context(), "user-1"))
+	rec := httptest.NewRecorder()
+
+	GetMyServers(memberships, servers).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got []map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "user-1", got[0]["ownerId"])
+	require.NotContains(t, got[1], "ownerId")
+}
+
 func TestGetMyServers_NoUserID_Unauthorized(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/server", nil) // no WithUserID
 	rec := httptest.NewRecorder()

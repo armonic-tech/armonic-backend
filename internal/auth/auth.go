@@ -13,6 +13,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUsernameTaken      = errors.New("username taken")
+	ErrInvalidInput       = errors.New("username required and password must be at least 8 characters")
 )
 
 const tokenTTL = 7 * 24 * time.Hour
@@ -45,7 +46,7 @@ func NewService(secret string, users Credentials) *Service {
 
 func (s *Service) Signup(ctx context.Context, username, password string) (string, error) {
 	if username == "" || len(password) < 8 {
-		return "", errors.New("username required and password must be at least 8 characters")
+		return "", ErrInvalidInput
 	}
 	if _, _, err := s.users.GetByUsername(ctx, username); err == nil {
 		return "", ErrUsernameTaken
