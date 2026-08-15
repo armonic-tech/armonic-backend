@@ -1,0 +1,413 @@
+definitions:
+  channel.ChannelInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      serverId:
+        type: string
+      type:
+        type: string
+    type: object
+  channel.Member:
+    properties:
+      deafened:
+        type: boolean
+      displayName:
+        type: string
+      id:
+        type: string
+      muted:
+        type: boolean
+    type: object
+  handlers.ChannelDetailResponse:
+    properties:
+      connected:
+        items:
+          $ref: '#/definitions/channel.Member'
+        type: array
+      connectedCount:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      serverId:
+        type: string
+      type:
+        type: string
+    type: object
+  handlers.InviteCreatedResponse:
+    properties:
+      inviteToken:
+        example: 6f1c5e0e-...
+        type: string
+      url:
+        example: https://armonic.example?invite=6f1c5e0e-...
+        type: string
+    type: object
+  handlers.InviteSignupRequest:
+    properties:
+      password:
+        example: s3cr3t-p4ss
+        type: string
+      token:
+        example: 6f1c5e0e-...
+        type: string
+      username:
+        example: member
+        type: string
+    type: object
+  handlers.InviteSignupResponse:
+    properties:
+      token:
+        example: eyJhbG...
+        type: string
+    type: object
+  handlers.InviteStatusResponse:
+    properties:
+      expiresAt:
+        example: "2026-08-13T10:00:00Z"
+        type: string
+      serverId:
+        example: 6f1c5e0e-...
+        type: string
+    type: object
+  handlers.LoginRequest:
+    properties:
+      password:
+        example: s3cr3t-p4ss
+        type: string
+      username:
+        example: admin
+        type: string
+    type: object
+  handlers.LoginResponse:
+    properties:
+      token:
+        example: eyJhbG...
+        type: string
+    type: object
+  handlers.ServerResponse:
+    properties:
+      claimed:
+        example: false
+        type: boolean
+      description:
+        example: ""
+        type: string
+      host:
+        example: localhost:8080
+        type: string
+      id:
+        example: 1a2b3c4d5e-...
+        type: string
+      memberCount:
+        example: 0
+        type: integer
+      name:
+        example: Armonic
+        type: string
+    type: object
+  message.Message:
+    properties:
+      channelId:
+        type: string
+      content:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      serverId:
+        type: string
+      userId:
+        type: string
+    type: object
+  server.ServerInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      ownerId:
+        description: |-
+          OwnerID is omitted while a server is unclaimed/unowned, so a client can
+          tell "not the owner" from "ownership unknown" and hide owner-only UI.
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Armonic API backend server.
+  title: Armonic API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Login user in already claimed server
+      parameters:
+      - description: User credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.LoginResponse'
+        "400":
+          description: invalid body
+          schema:
+            type: string
+        "401":
+          description: invalid credentials
+          schema:
+            type: string
+        "403":
+          description: server not claimed yet
+          schema:
+            type: string
+      summary: Login user
+      tags:
+      - Users
+  /channel/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single channel by its id, enriched with live voice state
+        (who is connected right now) when it's a voice channel
+      parameters:
+      - description: Channel ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ChannelDetailResponse'
+        "400":
+          description: invalid channel id
+          schema:
+            type: string
+        "404":
+          description: channel not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Channel info by id
+      tags:
+      - Channel
+  /channel/{id}/messages:
+    get:
+      description: Get a page of messages for a channel (newest first)
+      parameters:
+      - description: Channel ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Max messages to return (default 50, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/message.Message'
+            type: array
+        "400":
+          description: invalid channel id
+          schema:
+            type: string
+        "404":
+          description: channel not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Channel messages
+      tags:
+      - Channel
+  /info:
+    get:
+      consumes:
+      - application/json
+      description: Get status info from server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ServerResponse'
+      summary: Server info
+      tags:
+      - Server
+  /invite/signup:
+    post:
+      consumes:
+      - application/json
+      description: Redeem a single-use invite into a brand-new account; no prior JWT
+        needed.
+      parameters:
+      - description: Invite token + credentials
+        in: body
+        name: signup
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.InviteSignupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.InviteSignupResponse'
+        "400":
+          description: invalid body
+          schema:
+            type: string
+        "403":
+          description: server not claimed yet
+          schema:
+            type: string
+        "409":
+          description: username taken
+          schema:
+            type: string
+        "410":
+          description: invalid or expired invite
+          schema:
+            type: string
+      summary: Invite signup
+      tags:
+      - Invite
+  /invite/status:
+    get:
+      description: Validate an invite link before showing the signup form.
+      parameters:
+      - description: Invite token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.InviteStatusResponse'
+        "410":
+          description: invalid or expired invite
+          schema:
+            type: string
+      summary: Invite status
+      tags:
+      - Invite
+  /server:
+    get:
+      description: List the servers the authenticated user is a member of
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ServerInfo'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: My servers
+      tags:
+      - Server
+  /server/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get channels from server with server-id
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/channel.ChannelInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Server id info
+      tags:
+      - Server
+  /server/{id}/invite:
+    post:
+      description: Owner-only. Mint a single-use invite link for a server.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.InviteCreatedResponse'
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "403":
+          description: forbidden
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create invite
+      tags:
+      - Invite
+securityDefinitions:
+  BearerAuth:
+    description: 'Type "Bearer" followed by a space and the JWT returned by /auth/login.
+      Example: "Bearer eyJhbGci..."'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
+tags:
+- description: User endpoints
+  name: Users
+- description: Server endpoint
+  name: Server
+- description: Channel endpoint
+  name: Channel
