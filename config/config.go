@@ -19,6 +19,7 @@ type Config struct {
 	DBPath            string
 	MaxMsgLen         int
 	ClaimPassword     string
+	PublicBaseURL     string
 	AllowedOrigins    []string
 	RTC               struct {
 		StunServers []string `json:"stun_servers"`
@@ -48,6 +49,7 @@ func Load() (Config, error) {
 		LogFile:           getEnv("LOG_FILE", ""),
 		DBPath:            getEnv("DATABASE_URL", "postgres://armonic:armonic@localhost:5432/armonic?sslmode=disable"),
 		MaxMsgLen:         maxLen,
+		PublicBaseURL:     strings.TrimRight(strings.TrimSpace(getEnv("PUBLIC_BASE_URL", "")), "/"),
 	}
 
 	// RTC configuration

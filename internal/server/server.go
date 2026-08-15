@@ -181,7 +181,7 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	router.MemberByChannel("GET /channel/{id}", handlers.GetChannelByID(repos.Channels(), appState))
 	router.MemberByChannel("GET /channel/{id}/messages", handlers.GetChannelMessages(repos.Channels(), repos.Messages()))
 	// JWT + ownership
-	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
+	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.PublicBaseURL))
 
 	return &Server{addr: ":" + cfg.Port, mux: router.mux, allowedOrigins: cfg.AllowedOrigins}, nil
 }

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
-	authpkg "github.com/armonic-tech/armonic-backend/internal/auth"
 	"github.com/armonic-tech/armonic-backend/internal/models/invite"
 	"github.com/armonic-tech/armonic-backend/pkg/logger"
 )
@@ -25,8 +25,23 @@ type InviteCreator interface {
 }
 
 type InviteCreatedResponse struct {
-	InviteToken string `json:"inviteToken"`
-	URL         string `json:"url"`
+	InviteToken string `json:"inviteToken" example:"6f1c5e0e-..."`
+	URL         string `json:"url" example:"https://armonic.example?invite=6f1c5e0e-..."`
+}
+
+type InviteStatusResponse struct {
+	ServerID  string    `json:"serverId" example:"6f1c5e0e-..."`
+	ExpiresAt time.Time `json:"expiresAt" example:"2026-08-13T10:00:00Z"`
+}
+
+type InviteSignupRequest struct {
+	Token    string `json:"token" example:"6f1c5e0e-..."`
+	Username string `json:"username" example:"member"`
+	Password string `json:"password" example:"s3cr3t-p4ss"`
+}
+
+type InviteSignupResponse struct {
+	Token string `json:"token" example:"eyJhbG..."`
 }
 
 // CreateInvite mints a single-use invite for server {id}. Replaces the old
@@ -61,15 +76,59 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 			return
 		}
 
+		base := baseURL
+		if base == "" {
+			base = requestBaseURL(r)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(InviteCreatedResponse{
 			InviteToken: token,
-			URL:         fmt.Sprintf("%s?invite=%s", baseURL, token),
+			URL:         fmt.Sprintf("%s?invite=%s", base, token),
 		})
 	}
 }
 
+// requestBaseURL rebuilds the address the caller reached this instance at, so
+// the invite link is shareable as-is (the client derives the instance base URL
+// from the link). Proxy headers win over the connection itself; see the invite
+// section of docs/ai/http-api.md for why they're trusted here.
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := firstHeaderValue(r, "X-Forwarded-Proto"); p != "" {
+		scheme = p
+	}
+	host := r.Host
+	if h := firstHeaderValue(r, "X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme + "://" + host
+}
+
+// X-Forwarded-* accumulate one entry per hop ("a, b"); the first is the client-facing one.
+func firstHeaderValue(r *http.Request, name string) string {
+	v := r.Header.Get(name)
+	if v == "" {
+		return ""
+	}
+	if i := strings.IndexByte(v, ','); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
+}
+
+// @Summary      Invite status
+// @Description  Validate an invite link before showing the signup form.
+// @Tags         Invite
+// @Produce      json
+// @Param        token query string true "Invite token"
+// @Success      200 {object} InviteStatusResponse
+// @Failure      410 {string} string "invalid or expired invite"
+// @Router       /invite/status [get]
 func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
@@ -85,27 +144,33 @@ func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"serverId":  inv.ServerID,
-			"expiresAt": inv.ExpiresAt,
+		json.NewEncoder(w).Encode(InviteStatusResponse{
+			ServerID:  inv.ServerID,
+			ExpiresAt: inv.ExpiresAt,
 		})
 	}
 }
 
+// @Summary      Invite signup
+// @Description  Redeem a single-use invite into a brand-new account; no prior JWT needed.
+// @Tags         Invite
+// @Accept       json
+// @Produce      json
+// @Param        signup body InviteSignupRequest true "Invite token + credentials"
+// @Success      200 {object} InviteSignupResponse
+// @Failure      400 {string} string "invalid body"
+// @Failure      403 {string} string "server not claimed yet"
+// @Failure      409 {string} string "username taken"
+// @Failure      410 {string} string "invalid or expired invite"
+// @Router       /invite/signup [post]
 func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members MemberAdder, claimed func() bool) http.HandlerFunc {
-	type request struct {
-		Token    string `json:"token"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !claimed() {
 			http.Error(w, "server not claimed yet", http.StatusForbidden)
 			return
 		}
 
-		var req request
+		var req InviteSignupRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
@@ -124,11 +189,7 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 
 		token, err := auth.Signup(r.Context(), req.Username, req.Password)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if err == authpkg.ErrUsernameTaken {
-				status = http.StatusConflict
-			}
-			http.Error(w, err.Error(), status)
+			http.Error(w, err.Error(), signupStatus(err))
 			return
 		}
 

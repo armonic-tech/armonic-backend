@@ -77,11 +77,7 @@ func ClaimRegisterHandler(mgr *claim.Manager, auth RegisterAuthenticator, settin
 
 		token, err := auth.Signup(r.Context(), req.Username, req.Password)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if err == authpkg.ErrUsernameTaken {
-				status = http.StatusConflict
-			}
-			http.Error(w, err.Error(), status)
+			http.Error(w, err.Error(), signupStatus(err))
 			return
 		}
 

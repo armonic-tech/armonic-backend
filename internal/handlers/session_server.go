@@ -14,10 +14,12 @@ func (s *connSession) handleCreateServer(msg signal.Message) {
 	serverID := uuid.New().String()
 	if err := s.h.serverRepo.Create(s.ctx, serverID, msg.Name, s.user.ID); err != nil {
 		slog.ErrorContext(s.ctx, "create-server error", logger.User(s.user.ID), "error", err)
+		s.conn.SendJSON(map[string]any{"type": "error", "message": "could not create server"})
 		return
 	}
 	if err := s.h.membershipRepo.Add(s.ctx, s.user.ID, serverID); err != nil {
 		slog.ErrorContext(s.ctx, "create-server membership error", logger.User(s.user.ID), logger.Server(serverID), "error", err)
+		s.conn.SendJSON(map[string]any{"type": "error", "message": "could not create server"})
 		return
 	}
 	defaultChannels := []channel.ChannelInfo{
@@ -47,6 +49,7 @@ func (s *connSession) handleJoinServer(msg signal.Message) {
 	}
 	if err := s.h.membershipRepo.Add(s.ctx, s.user.ID, inv.ServerID); err != nil {
 		slog.ErrorContext(s.ctx, "join-server error", logger.User(s.user.ID), logger.Server(inv.ServerID), "error", err)
+		s.conn.SendJSON(map[string]any{"type": "error", "message": "could not join server"})
 		return
 	}
 	if err := s.h.inviteRepo.MarkUsed(s.ctx, msg.InviteToken); err != nil {

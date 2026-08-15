@@ -3,10 +3,24 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	authpkg "github.com/armonic-tech/armonic-backend/internal/auth"
 
 	_ "github.com/armonic-tech/armonic-backend/docs"
 )
+
+func signupStatus(err error) int {
+	switch {
+	case errors.Is(err, authpkg.ErrUsernameTaken):
+		return http.StatusConflict
+	case errors.Is(err, authpkg.ErrInvalidInput):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
 
 type AuthService interface {
 	Signup(ctx context.Context, username, password string) (string, error)
