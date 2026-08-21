@@ -25,7 +25,7 @@ func (r *MessageRepo) Save(ctx context.Context, msg message.Message) error {
 
 func (r *MessageRepo) GetByChannel(ctx context.Context, serverID, channelID string, limit int) ([]message.Message, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, user_id, content, created_at FROM messages WHERE server_id = $1 AND channel_id = $2 ORDER BY created_at DESC LIMIT $3`,
+		`SELECT id, user_id, content, created_at FROM messages WHERE server_id = $1 AND channel_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT $3`,
 		serverID, channelID, limit,
 	)
 	if err != nil {
@@ -46,4 +46,19 @@ func (r *MessageRepo) GetByChannel(ctx context.Context, serverID, channelID stri
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
+}
+
+func (r *MessageRepo) SoftDelete(ctx context.Context, serverID, channelID, messageID, deletedBy string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE messages SET deleted_at = $1, deleted_by = $2 WHERE id = $3 AND server_id = $4 AND channel_id = $5 AND deleted_at IS NULL`,
+		time.Now().Unix(), deletedBy, messageID, serverID, channelID,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }

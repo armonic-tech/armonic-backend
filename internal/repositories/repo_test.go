@@ -123,6 +123,42 @@ func TestMessageRepo_Create(t *testing.T) {
 	require.Equal(t, msg.UserID, msgs[0].UserID)
 }
 
+func TestMessageRepo_SoftDelete(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+
+	defer tx.Rollback()
+
+	repo := NewMessageRepo(tx)
+	ctx := context.Background()
+
+	msg := message.Message{
+		ID:        "delete-id",
+		ChannelID: "channel-id",
+		ServerID:  "server-delete",
+		UserID:    "user-id",
+		Content:   "test",
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.Save(ctx, msg))
+
+	deleted, err := repo.SoftDelete(ctx, msg.ServerID, "other-channel", msg.ID, "admin-id")
+	require.NoError(t, err)
+	require.False(t, deleted)
+
+	deleted, err = repo.SoftDelete(ctx, msg.ServerID, msg.ChannelID, msg.ID, "admin-id")
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	msgs, err := repo.GetByChannel(ctx, msg.ServerID, msg.ChannelID, 10)
+	require.NoError(t, err)
+	require.Empty(t, msgs)
+
+	deleted, err = repo.SoftDelete(ctx, msg.ServerID, msg.ChannelID, msg.ID, "admin-id")
+	require.NoError(t, err)
+	require.False(t, deleted)
+}
+
 func TestChannelRepo_Create(t *testing.T) {
 	tx, err := testDB.Begin()
 	require.NoError(t, err)

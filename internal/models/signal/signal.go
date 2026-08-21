@@ -19,6 +19,9 @@ type Message struct {
 	// text-message / create-server
 	Content string `json:"content,omitempty"`
 
+	// delete-message
+	MessageID string `json:"messageId,omitempty"`
+
 	// join-server
 	InviteToken string `json:"inviteToken,omitempty"`
 

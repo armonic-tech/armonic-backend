@@ -37,8 +37,12 @@ func Migrate(db *sql.DB) error {
 			channel_id TEXT NOT NULL,
 			user_id    TEXT NOT NULL,
 			content    TEXT NOT NULL,
-			created_at BIGINT NOT NULL
+			created_at BIGINT NOT NULL,
+			deleted_at BIGINT,
+			deleted_by TEXT
 		);
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 		CREATE TABLE IF NOT EXISTS invites (
 			token      TEXT PRIMARY KEY,
 			server_id  TEXT NOT NULL,

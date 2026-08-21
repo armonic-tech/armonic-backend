@@ -33,6 +33,7 @@ func newUpgrader(allowedOrigins []string) websocket.Upgrader {
 
 type MessageRepo interface {
 	Save(ctx context.Context, msg message.Message) error
+	SoftDelete(ctx context.Context, serverID, channelID, messageID, deletedBy string) (bool, error)
 }
 
 type MembershipRepo interface {
@@ -159,6 +160,8 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleJoinServer(msg)
 		case "text-message":
 			s.handleTextMessage(msg)
+		case "delete-message":
+			s.handleDeleteMessage(msg)
 		case "kick-voice":
 			s.handleKickVoice(msg)
 		case "kick-server":
