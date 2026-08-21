@@ -91,6 +91,11 @@ func TestServerRepo_Create(t *testing.T) {
 	isOwner, err = repo.IsOwner(ctx, "example-id", "owner-id")
 	require.NoError(t, err)
 	require.True(t, isOwner)
+
+	infos, err := repo.GetByIDs(ctx, []string{"example-id"})
+	require.NoError(t, err)
+	require.Len(t, infos, 1)
+	require.Equal(t, "owner-id", infos[0].OwnerID)
 }
 
 func TestMessageRepo_Create(t *testing.T) {

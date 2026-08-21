@@ -50,7 +50,7 @@ func (r *ServerRepo) GetByIDs(ctx context.Context, ids []string) ([]server.Serve
 		args[i] = id
 	}
 
-	query := "SELECT id, name FROM servers WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	query := "SELECT id, name, COALESCE(owner_id, '') FROM servers WHERE id IN (" + strings.Join(placeholders, ",") + ")"
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (r *ServerRepo) GetByIDs(ctx context.Context, ids []string) ([]server.Serve
 	var servers []server.ServerInfo
 	for rows.Next() {
 		var s server.ServerInfo
-		if err := rows.Scan(&s.ID, &s.Name); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.OwnerID); err != nil {
 			return nil, err
 		}
 		servers = append(servers, s)
