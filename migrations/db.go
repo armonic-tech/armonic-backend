@@ -21,11 +21,13 @@ func Migrate(db *sql.DB) error {
 			created_at BIGINT NOT NULL
 		);
 		CREATE TABLE IF NOT EXISTS channels (
-			id        TEXT PRIMARY KEY,
-			server_id TEXT NOT NULL,
-			name      TEXT NOT NULL,
-			type      TEXT NOT NULL
+			id         TEXT PRIMARY KEY,
+			server_id  TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			type       TEXT NOT NULL,
+			deleted_at BIGINT
 		);
+		ALTER TABLE channels ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
 		CREATE TABLE IF NOT EXISTS memberships (
 			user_id   TEXT NOT NULL,
 			server_id TEXT NOT NULL,
@@ -62,6 +64,9 @@ func Migrate(db *sql.DB) error {
 			ON memberships(user_id);
 		CREATE INDEX IF NOT EXISTS idx_channels_server
 			ON channels(server_id);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_unique_name
+			ON channels(server_id, type, lower(name))
+			WHERE deleted_at IS NULL;
 		CREATE INDEX IF NOT EXISTS idx_invites_expires
 			ON invites(expires_at);
 	`)

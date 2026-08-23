@@ -90,6 +90,20 @@ func (s *Server) AddTextChannel(id string) *channel.TextChannel {
 	return ch
 }
 
+func (s *Server) RemoveVoiceChannel(id string) *channel.VoiceChannel {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vc := s.VoiceChannels[id]
+	delete(s.VoiceChannels, id)
+	return vc
+}
+
+func (s *Server) RemoveTextChannel(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.TextChannels, id)
+}
+
 func (s *Server) KickUserFromAllVoice(userID string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

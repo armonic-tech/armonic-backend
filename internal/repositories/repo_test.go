@@ -184,6 +184,120 @@ func TestChannelRepo_Create(t *testing.T) {
 	require.Equal(t, "text", channels[0].Type)
 }
 
+func TestChannelRepo_NameTaken(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewChannelRepo(tx)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Create(ctx, "ch-t", "sv-n", "General", "text"))
+
+	taken, err := repo.NameTaken(ctx, "sv-n", "text", "General")
+	require.NoError(t, err)
+	require.True(t, taken)
+
+	// Case-insensitive: "general" and "General" are the same channel to a user.
+	taken, err = repo.NameTaken(ctx, "sv-n", "text", "gEnErAl")
+	require.NoError(t, err)
+	require.True(t, taken)
+
+	// Scoped by type — the bootstrap server ships general/text + General/voice.
+	taken, err = repo.NameTaken(ctx, "sv-n", "voice", "General")
+	require.NoError(t, err)
+	require.False(t, taken)
+
+	// ...and by server.
+	taken, err = repo.NameTaken(ctx, "sv-other", "text", "General")
+	require.NoError(t, err)
+	require.False(t, taken)
+
+	taken, err = repo.NameTaken(ctx, "sv-n", "text", "random")
+	require.NoError(t, err)
+	require.False(t, taken)
+}
+
+func TestChannelRepo_NameFreedBySoftDelete(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewChannelRepo(tx)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Create(ctx, "ch-a", "sv-reuse", "general", "text"))
+
+	// The unique index is partial, so deleting releases the name...
+	deleted, err := repo.SoftDelete(ctx, "sv-reuse", "ch-a")
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	taken, err := repo.NameTaken(ctx, "sv-reuse", "text", "general")
+	require.NoError(t, err)
+	require.False(t, taken)
+
+	// ...and the name can be claimed again by a new row.
+	require.NoError(t, repo.Create(ctx, "ch-b", "sv-reuse", "general", "text"))
+}
+
+// The index, not the handler, is what holds under a race: two concurrent
+// creates that both pass the NameTaken check must not both land.
+func TestChannelRepo_DuplicateNameRejectedByIndex(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewChannelRepo(tx)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Create(ctx, "ch-1", "sv-dup", "general", "text"))
+
+	err = repo.Create(ctx, "ch-2", "sv-dup", "GENERAL", "text")
+	require.Error(t, err, "a duplicate name must be rejected by the DB itself")
+
+	// A different type with the same name is still fine.
+	tx2, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx2.Rollback()
+	repo2 := NewChannelRepo(tx2)
+	require.NoError(t, repo2.Create(ctx, "ch-3", "sv-dup2", "general", "text"))
+	require.NoError(t, repo2.Create(ctx, "ch-4", "sv-dup2", "General", "voice"))
+}
+
+func TestChannelRepo_SoftDelete(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewChannelRepo(tx)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Create(ctx, "ch-del", "sv-del", "general", "text"))
+	require.NoError(t, repo.Create(ctx, "ch-keep", "sv-del", "random", "text"))
+
+	deleted, err := repo.SoftDelete(ctx, "sv-other", "ch-del")
+	require.NoError(t, err)
+	require.False(t, deleted)
+
+	deleted, err = repo.SoftDelete(ctx, "sv-del", "ch-del")
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	byID, err := repo.GetByID(ctx, "ch-del")
+	require.NoError(t, err)
+	require.Nil(t, byID)
+
+	channels, err := repo.GetChannelByServer(ctx, "sv-del")
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	require.Equal(t, "ch-keep", channels[0].ID)
+
+	deleted, err = repo.SoftDelete(ctx, "sv-del", "ch-del")
+	require.NoError(t, err)
+	require.False(t, deleted)
+}
+
 func TestMembershipRepo_IsMemberByChannel(t *testing.T) {
 	ctx := context.Background()
 	tx, err := testDB.Begin()
