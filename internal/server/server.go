@@ -17,9 +17,9 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-// defaultServerSettingsKey stores the ID of the single bootstrap server
-// created on first run. handleCreateServer (session_server.go) lets an
-// authenticated owner create further servers beyond this one.
+// defaultServerSettingsKey stores the ID of the bootstrap server created on
+// first run. It is the *only* server an instance ever has: one instance is one
+// server, so nothing outside ensureDefaultServer calls ServerRepo.Create.
 const defaultServerSettingsKey = "default_server_id"
 
 type Server struct {

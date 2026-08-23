@@ -16,11 +16,14 @@ type Message struct {
 	ServerID  string `json:"serverId,omitempty"`
 	ChannelID string `json:"channelId,omitempty"`
 
-	// text-message / create-server
+	// text-message
 	Content string `json:"content,omitempty"`
 
 	// delete-message
 	MessageID string `json:"messageId,omitempty"`
+
+	// create-channel ("text" | "voice"); the name travels in Name
+	ChannelType string `json:"channelType,omitempty"`
 
 	// join-server
 	InviteToken string `json:"inviteToken,omitempty"`

@@ -76,6 +76,22 @@ func (vc *VoiceChannel) KickUser(userID string) {
 	u.Media.Close()
 }
 
+func (vc *VoiceChannel) CloseAll() {
+	vc.mu.Lock()
+	members := make([]*user.User, 0, len(vc.Users))
+	for _, u := range vc.Users {
+		members = append(members, u)
+	}
+	vc.Users = make(map[string]*user.User)
+	vc.mu.Unlock()
+
+	for _, u := range members {
+		if u.Media != nil {
+			u.Media.Close()
+		}
+	}
+}
+
 func (vc *VoiceChannel) Broadcast(senderID string, msg any) {
 	vc.mu.RLock()
 	defer vc.mu.RUnlock()

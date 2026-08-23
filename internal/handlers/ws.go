@@ -50,7 +50,10 @@ type ServerRepo interface {
 
 type ChannelRepo interface {
 	Create(ctx context.Context, id, serverID, name, chType string) error
+	NameTaken(ctx context.Context, serverID, chType, name string) (bool, error)
+	GetByID(ctx context.Context, id string) (*channel.ChannelInfo, error)
 	GetChannelByServer(ctx context.Context, serverID string) ([]channel.ChannelInfo, error)
+	SoftDelete(ctx context.Context, serverID, channelID string) (bool, error)
 }
 
 type InviteRepo interface {
@@ -154,14 +157,16 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleVoiceState(msg)
 		case "leave-voice":
 			s.handleLeaveVoice()
-		case "create-server":
-			s.handleCreateServer(msg)
 		case "join-server":
 			s.handleJoinServer(msg)
 		case "text-message":
 			s.handleTextMessage(msg)
 		case "delete-message":
 			s.handleDeleteMessage(msg)
+		case "create-channel":
+			s.handleCreateChannel(msg)
+		case "delete-channel":
+			s.handleDeleteChannel(msg)
 		case "kick-voice":
 			s.handleKickVoice(msg)
 		case "kick-server":
