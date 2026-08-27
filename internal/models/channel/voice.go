@@ -39,6 +39,7 @@ func (vc *VoiceChannel) Members() []Member {
 		members = append(members, Member{
 			ID:          u.ID,
 			DisplayName: u.DisplayName,
+			AvatarID:    u.AvatarID,
 			Muted:       u.IsMuted(),
 			Deafened:    u.IsDeafened(),
 		})

@@ -92,11 +92,12 @@ func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 	}
 }
 
-func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members MemberAdder, claimed func() bool) http.HandlerFunc {
+func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members MemberAdder, claimed func() bool, verifier PowChecker) http.HandlerFunc {
 	type request struct {
 		Token    string `json:"token"`
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Altcha   string `json:"altcha,omitempty"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +109,10 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 		var req request
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+
+		if !checkPow(w, verifier, req.Altcha) {
 			return
 		}
 

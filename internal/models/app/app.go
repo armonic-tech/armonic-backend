@@ -49,6 +49,14 @@ func (a *App) VoiceMembers(serverID, channelID string) []channel.Member {
 	return vc.Members()
 }
 
+func (a *App) ConnectedUserIDs(serverID string) []string {
+	srv := a.getServer(serverID)
+	if srv == nil {
+		return nil
+	}
+	return srv.ConnectedUserIDs()
+}
+
 func (a *App) RemoveConnectedUser(userID string) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

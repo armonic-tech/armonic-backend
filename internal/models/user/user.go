@@ -9,6 +9,7 @@ import (
 type User struct {
 	ID             string
 	DisplayName    string
+	AvatarID       string
 	Signaling      Socket
 	Media          RTCConn
 	VoiceChannelID string

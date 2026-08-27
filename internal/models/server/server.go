@@ -38,6 +38,17 @@ func (s *Server) RemoveConnectedUser(userID string) {
 	delete(s.ConnectedUsers, userID)
 }
 
+func (s *Server) ConnectedUserIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := make([]string, 0, len(s.ConnectedUsers))
+	for id := range s.ConnectedUsers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (s *Server) BroadcastMessage(senderID string, msg any) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

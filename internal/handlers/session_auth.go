@@ -22,12 +22,12 @@ func (s *connSession) handleAuth(msg signal.Message) error {
 		}
 	}
 
-	displayName, err := s.h.userRepo.GetName(s.ctx, claims.Sub)
+	displayName, avatarID, err := s.h.userRepo.GetProfile(s.ctx, claims.Sub)
 	if err != nil {
-		slog.ErrorContext(s.ctx, "auth: error loading display name", logger.User(claims.Sub), "error", err)
+		slog.ErrorContext(s.ctx, "auth: error loading profile", logger.User(claims.Sub), "error", err)
 	}
 
-	s.user = &user.User{ID: claims.Sub, DisplayName: displayName, Signaling: s.conn}
+	s.user = &user.User{ID: claims.Sub, DisplayName: displayName, AvatarID: avatarID, Signaling: s.conn}
 
 	serverIDs, err := s.h.membershipRepo.GetByUser(s.ctx, claims.Sub)
 	if err != nil {
@@ -38,6 +38,6 @@ func (s *connSession) handleAuth(msg signal.Message) error {
 	}
 
 	slog.InfoContext(s.ctx, "user authenticated", logger.User(claims.Sub))
-	s.conn.SendJSON(map[string]any{"type": "auth-ok", "userId": claims.Sub, "displayName": displayName})
+	s.conn.SendJSON(map[string]any{"type": "auth-ok", "userId": claims.Sub, "displayName": displayName, "avatarId": avatarID})
 	return nil
 }

@@ -57,6 +57,21 @@ func Migrate(db *sql.DB) error {
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS attachments (
+			id           TEXT PRIMARY KEY,
+			hash         TEXT NOT NULL,
+			server_id    TEXT NOT NULL,
+			user_id      TEXT NOT NULL,
+			format       TEXT NOT NULL,
+			thumb_format TEXT NOT NULL,
+			mime         TEXT NOT NULL,
+			size         BIGINT NOT NULL,
+			width        INT NOT NULL,
+			height       INT NOT NULL,
+			created_at   BIGINT NOT NULL
+		);
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id TEXT;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_id TEXT;
 
 		CREATE INDEX IF NOT EXISTS idx_messages_channel
 			ON messages(server_id, channel_id, created_at DESC);
@@ -69,6 +84,8 @@ func Migrate(db *sql.DB) error {
 			WHERE deleted_at IS NULL;
 		CREATE INDEX IF NOT EXISTS idx_invites_expires
 			ON invites(expires_at);
+		CREATE INDEX IF NOT EXISTS idx_attachments_hash
+			ON attachments(hash);
 	`)
 	return err
 }

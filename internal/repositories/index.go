@@ -18,6 +18,7 @@ type Repositories struct {
 	membershipRepo *MembershipRepo
 	inviteRepo     *InviteRepo
 	settingsRepo   *SettingsRepo
+	attachmentRepo *AttachmentRepo
 }
 
 func InitRepositories(db DBTX) *Repositories {
@@ -29,6 +30,7 @@ func InitRepositories(db DBTX) *Repositories {
 		membershipRepo: NewMembershipRepo(db),
 		inviteRepo:     NewInviteRepo(db),
 		settingsRepo:   NewSettingsRepo(db),
+		attachmentRepo: NewAttachmentRepo(db),
 	}
 }
 
@@ -39,6 +41,7 @@ func (r *Repositories) Users() *UserRepo             { return r.userRepo }
 func (r *Repositories) Memberships() *MembershipRepo { return r.membershipRepo }
 func (r *Repositories) Invites() *InviteRepo         { return r.inviteRepo }
 func (r *Repositories) Settings() *SettingsRepo      { return r.settingsRepo }
+func (r *Repositories) Attachments() *AttachmentRepo { return r.attachmentRepo }
 
 func NewDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)

@@ -15,6 +15,43 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/attachment/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. Serves the sanitized image bytes.",
+                "tags": [
+                    "Attachment"
+                ],
+                "summary": "Fetch an attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Attachment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "attachment not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/login": {
             "post": {
                 "description": "Login user in already claimed server",
@@ -60,6 +97,18 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "server not claimed yet",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "proof of work expired or already used",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "429": {
+                        "description": "rate limit exceeded",
                         "schema": {
                             "type": "string"
                         }
@@ -194,57 +243,30 @@ const docTemplate = `{
                 }
             }
         },
-        "/invite/signup": {
-            "post": {
-                "description": "Redeem a single-use invite into a brand-new account; no prior JWT needed.",
-                "consumes": [
-                    "application/json"
+        "/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
                 ],
+                "description": "The authenticated caller's id, display name and avatar.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Invite"
+                    "Users"
                 ],
-                "summary": "Invite signup",
-                "parameters": [
-                    {
-                        "description": "Invite token + credentials",
-                        "name": "signup",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.InviteSignupRequest"
-                        }
-                    }
-                ],
+                "summary": "Own profile",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.InviteSignupResponse"
+                            "$ref": "#/definitions/handlers.MeResponse"
                         }
                     },
-                    "400": {
-                        "description": "invalid body",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "403": {
-                        "description": "server not claimed yet",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "409": {
-                        "description": "username taken",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "410": {
-                        "description": "invalid or expired invite",
+                    "401": {
+                        "description": "unauthorized",
                         "schema": {
                             "type": "string"
                         }
@@ -252,22 +274,30 @@ const docTemplate = `{
                 }
             }
         },
-        "/invite/status": {
-            "get": {
-                "description": "Validate an invite link before showing the signup form.",
+        "/me/avatar": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads an image through the same pipeline as attachments and points the caller's avatar at it.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Invite"
+                    "Users"
                 ],
-                "summary": "Invite status",
+                "summary": "Set own avatar",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Invite token",
-                        "name": "token",
-                        "in": "query",
+                        "type": "file",
+                        "description": "Image file",
+                        "name": "file",
+                        "in": "formData",
                         "required": true
                     }
                 ],
@@ -275,11 +305,49 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.InviteStatusResponse"
+                            "$ref": "#/definitions/attachment.Attachment"
                         }
                     },
-                    "410": {
-                        "description": "invalid or expired invite",
+                    "413": {
+                        "description": "file exceeds the maximum upload size",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "415": {
+                        "description": "unsupported image format",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "429": {
+                        "description": "rate limit exceeded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/pow/challenge": {
+            "get": {
+                "description": "Issues an Altcha-compatible challenge. Solve it and send the base64 solution in the \"altcha\" field of the login, claim or invite-signup request. Returns 404 when POW_ENABLED is off.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Proof-of-work challenge",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pow.Challenge"
+                        }
+                    },
+                    "404": {
+                        "description": "proof of work is disabled",
                         "schema": {
                             "type": "string"
                         }
@@ -406,9 +474,167 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/server/{id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. The roster of a server: every member with their display name, avatar and owner flag, plus whether they currently have a live WebSocket connection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Server"
+                ],
+                "summary": "Server members",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.MemberInfo"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "invalid server id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "forbidden",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/server/{id}/upload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. Multipart upload of one image (field \"file\"). The file is validated by magic number, decoded, stripped of all metadata by re-encoding its pixels, thumbnailed and stored. The uploaded bytes are discarded.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Attachment"
+                ],
+                "summary": "Upload an image",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Image file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/attachment.Attachment"
+                        }
+                    },
+                    "400": {
+                        "description": "image could not be decoded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "413": {
+                        "description": "file exceeds the maximum upload size",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "415": {
+                        "description": "unsupported image format",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "422": {
+                        "description": "image dimensions exceed the configured limit",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "429": {
+                        "description": "rate limit exceeded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "attachment.Attachment": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "mime": {
+                    "type": "string"
+                },
+                "serverId": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "thumbUrl": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
         "channel.ChannelInfo": {
             "type": "object",
             "properties": {
@@ -429,6 +655,9 @@ const docTemplate = `{
         "channel.Member": {
             "type": "object",
             "properties": {
+                "avatarId": {
+                    "type": "string"
+                },
                 "deafened": {
                     "type": "boolean"
                 },
@@ -473,57 +702,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "inviteToken": {
-                    "type": "string",
-                    "example": "6f1c5e0e-..."
+                    "type": "string"
                 },
                 "url": {
-                    "type": "string",
-                    "example": "https://armonic.example?invite=6f1c5e0e-..."
-                }
-            }
-        },
-        "handlers.InviteSignupRequest": {
-            "type": "object",
-            "properties": {
-                "password": {
-                    "type": "string",
-                    "example": "s3cr3t-p4ss"
-                },
-                "token": {
-                    "type": "string",
-                    "example": "6f1c5e0e-..."
-                },
-                "username": {
-                    "type": "string",
-                    "example": "member"
-                }
-            }
-        },
-        "handlers.InviteSignupResponse": {
-            "type": "object",
-            "properties": {
-                "token": {
-                    "type": "string",
-                    "example": "eyJhbG..."
-                }
-            }
-        },
-        "handlers.InviteStatusResponse": {
-            "type": "object",
-            "properties": {
-                "expiresAt": {
-                    "type": "string",
-                    "example": "2026-08-13T10:00:00Z"
-                },
-                "serverId": {
-                    "type": "string",
-                    "example": "6f1c5e0e-..."
+                    "type": "string"
                 }
             }
         },
         "handlers.LoginRequest": {
             "type": "object",
             "properties": {
+                "altcha": {
+                    "type": "string",
+                    "example": "eyJhbGdvcml0aG0iOi..."
+                },
                 "password": {
                     "type": "string",
                     "example": "s3cr3t-p4ss"
@@ -540,6 +732,23 @@ const docTemplate = `{
                 "token": {
                     "type": "string",
                     "example": "eyJhbG..."
+                }
+            }
+        },
+        "handlers.MeResponse": {
+            "type": "object",
+            "properties": {
+                "avatarId": {
+                    "type": "string"
+                },
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
                 }
             }
         },
@@ -575,6 +784,9 @@ const docTemplate = `{
         "message.Message": {
             "type": "object",
             "properties": {
+                "attachmentId": {
+                    "type": "string"
+                },
                 "channelId": {
                     "type": "string"
                 },
@@ -595,6 +807,49 @@ const docTemplate = `{
                 }
             }
         },
+        "pow.Challenge": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "type": "string"
+                },
+                "challenge": {
+                    "type": "string"
+                },
+                "maxnumber": {
+                    "type": "integer"
+                },
+                "salt": {
+                    "type": "string"
+                },
+                "signature": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.MemberInfo": {
+            "type": "object",
+            "properties": {
+                "avatarId": {
+                    "type": "string"
+                },
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isOwner": {
+                    "type": "boolean"
+                },
+                "online": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.ServerInfo": {
             "type": "object",
             "properties": {
@@ -605,7 +860,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "ownerId": {
-                    "description": "OwnerID is omitted while a server is unclaimed/unowned, so a client can\ntell \"not the owner\" from \"ownership unknown\" and hide owner-only UI.",
                     "type": "string"
                 }
             }

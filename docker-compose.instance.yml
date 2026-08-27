@@ -1,3 +1,5 @@
+name: armonic-${INSTANCE:?set INSTANCE, e.g. INSTANCE=2}
+
 services:
   db:
     image: postgres:17
@@ -21,19 +23,19 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://armonic:armonic@db:5432/armonic?sslmode=disable
-      JWT_SECRET: change-me
-      PORT: "8080"
-      LOG_LEVEL: info
-      # CORS_ALLOWED_ORIGINS: "https://app.armonic.com,http://localhost:3000"
-      CORS_ALLOWED_ORIGINS: ""
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      PORT: ${APP_PORT:-8090}
+      HOST: ${APP_HOST:-localhost}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       UPLOAD_DIR: /app/data/uploads
-      TRUSTED_PROXIES: ""
-      POW_ENABLED: "false"
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      POW_ENABLED: ${POW_ENABLED:-false}
     volumes:
-      - ./config.json:/app/config.json:ro
+      - ${CONFIG_FILE:-./config.json}:/app/config.json:ro
       - uploads:/app/data
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8090}:${APP_PORT:-8090}"
     restart: unless-stopped
 
 volumes:

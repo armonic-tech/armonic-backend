@@ -68,6 +68,7 @@ type Authenticator interface {
 type UserRepo interface {
 	Upsert(ctx context.Context, id, displayName string) error
 	GetName(ctx context.Context, id string) (string, error)
+	GetProfile(ctx context.Context, id string) (displayName, avatarID string, err error)
 }
 
 type WSHandler struct {
@@ -78,12 +79,13 @@ type WSHandler struct {
 	channelRepo    ChannelRepo
 	inviteRepo     InviteRepo
 	userRepo       UserRepo
+	attachmentRepo AttachmentRepository
 	auth           Authenticator
 	cfg            config.Config
 	upgrader       websocket.Upgrader
 }
 
-func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, v Authenticator, cfg config.Config) *WSHandler {
+func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, att AttachmentRepository, v Authenticator, cfg config.Config) *WSHandler {
 	return &WSHandler{
 		app:            a,
 		messageRepo:    msg,
@@ -92,6 +94,7 @@ func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server
 		channelRepo:    ch,
 		inviteRepo:     inv,
 		userRepo:       users,
+		attachmentRepo: att,
 		auth:           v,
 		cfg:            cfg,
 		upgrader:       newUpgrader(cfg.AllowedOrigins),

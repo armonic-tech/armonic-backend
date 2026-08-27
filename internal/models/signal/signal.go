@@ -20,7 +20,8 @@ type Message struct {
 	Content string `json:"content,omitempty"`
 
 	// delete-message
-	MessageID string `json:"messageId,omitempty"`
+	MessageID    string `json:"messageId,omitempty"`
+	AttachmentID string `json:"attachmentId,omitempty"`
 
 	// create-channel ("text" | "voice"); the name travels in Name
 	ChannelType string `json:"channelType,omitempty"`

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/message"
@@ -17,15 +18,22 @@ func NewMessageRepo(db DBTX) *MessageRepo {
 
 func (r *MessageRepo) Save(ctx context.Context, msg message.Message) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO messages (id, server_id, channel_id, user_id, content, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-		msg.ID, msg.ServerID, msg.ChannelID, msg.UserID, msg.Content, msg.CreatedAt.Unix(),
+		`INSERT INTO messages (id, server_id, channel_id, user_id, content, created_at, attachment_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		msg.ID, msg.ServerID, msg.ChannelID, msg.UserID, msg.Content, msg.CreatedAt.Unix(), nullable(msg.AttachmentID),
 	)
 	return err
 }
 
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func (r *MessageRepo) GetByChannel(ctx context.Context, serverID, channelID string, limit int) ([]message.Message, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, user_id, content, created_at FROM messages WHERE server_id = $1 AND channel_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT $3`,
+		`SELECT id, user_id, content, created_at, attachment_id FROM messages WHERE server_id = $1 AND channel_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT $3`,
 		serverID, channelID, limit,
 	)
 	if err != nil {
@@ -37,11 +45,13 @@ func (r *MessageRepo) GetByChannel(ctx context.Context, serverID, channelID stri
 	for rows.Next() {
 		var m message.Message
 		var createdAt int64
-		if err := rows.Scan(&m.ID, &m.UserID, &m.Content, &createdAt); err != nil {
+		var attachmentID sql.NullString
+		if err := rows.Scan(&m.ID, &m.UserID, &m.Content, &createdAt, &attachmentID); err != nil {
 			return nil, err
 		}
 		m.ServerID = serverID
 		m.ChannelID = channelID
+		m.AttachmentID = attachmentID.String
 		m.CreatedAt = time.Unix(createdAt, 0).UTC()
 		msgs = append(msgs, m)
 	}

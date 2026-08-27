@@ -1,4 +1,27 @@
 definitions:
+  attachment.Attachment:
+    properties:
+      createdAt:
+        type: string
+      height:
+        type: integer
+      id:
+        type: string
+      mime:
+        type: string
+      serverId:
+        type: string
+      size:
+        type: integer
+      thumbUrl:
+        type: string
+      url:
+        type: string
+      userId:
+        type: string
+      width:
+        type: integer
+    type: object
   channel.ChannelInfo:
     properties:
       id:
@@ -12,6 +35,8 @@ definitions:
     type: object
   channel.Member:
     properties:
+      avatarId:
+        type: string
       deafened:
         type: boolean
       displayName:
@@ -41,41 +66,15 @@ definitions:
   handlers.InviteCreatedResponse:
     properties:
       inviteToken:
-        example: 6f1c5e0e-...
         type: string
       url:
-        example: https://armonic.example?invite=6f1c5e0e-...
-        type: string
-    type: object
-  handlers.InviteSignupRequest:
-    properties:
-      password:
-        example: s3cr3t-p4ss
-        type: string
-      token:
-        example: 6f1c5e0e-...
-        type: string
-      username:
-        example: member
-        type: string
-    type: object
-  handlers.InviteSignupResponse:
-    properties:
-      token:
-        example: eyJhbG...
-        type: string
-    type: object
-  handlers.InviteStatusResponse:
-    properties:
-      expiresAt:
-        example: "2026-08-13T10:00:00Z"
-        type: string
-      serverId:
-        example: 6f1c5e0e-...
         type: string
     type: object
   handlers.LoginRequest:
     properties:
+      altcha:
+        example: eyJhbGdvcml0aG0iOi...
+        type: string
       password:
         example: s3cr3t-p4ss
         type: string
@@ -87,6 +86,17 @@ definitions:
     properties:
       token:
         example: eyJhbG...
+        type: string
+    type: object
+  handlers.MeResponse:
+    properties:
+      avatarId:
+        type: string
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      id:
         type: string
     type: object
   handlers.ServerResponse:
@@ -112,6 +122,8 @@ definitions:
     type: object
   message.Message:
     properties:
+      attachmentId:
+        type: string
       channelId:
         type: string
       content:
@@ -125,6 +137,34 @@ definitions:
       userId:
         type: string
     type: object
+  pow.Challenge:
+    properties:
+      algorithm:
+        type: string
+      challenge:
+        type: string
+      maxnumber:
+        type: integer
+      salt:
+        type: string
+      signature:
+        type: string
+    type: object
+  server.MemberInfo:
+    properties:
+      avatarId:
+        type: string
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: string
+      isOwner:
+        type: boolean
+      online:
+        type: boolean
+    type: object
   server.ServerInfo:
     properties:
       id:
@@ -132,9 +172,6 @@ definitions:
       name:
         type: string
       ownerId:
-        description: |-
-          OwnerID is omitted while a server is unclaimed/unowned, so a client can
-          tell "not the owner" from "ownership unknown" and hide owner-only UI.
         type: string
     type: object
 info:
@@ -143,6 +180,29 @@ info:
   title: Armonic API
   version: "1.0"
 paths:
+  /attachment/{id}:
+    get:
+      description: Member-only. Serves the sanitized image bytes.
+      parameters:
+      - description: Attachment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: attachment not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Fetch an attachment
+      tags:
+      - Attachment
   /auth/login:
     post:
       consumes:
@@ -172,6 +232,14 @@ paths:
             type: string
         "403":
           description: server not claimed yet
+          schema:
+            type: string
+        "409":
+          description: proof of work expired or already used
+          schema:
+            type: string
+        "429":
+          description: rate limit exceeded
           schema:
             type: string
       summary: Login user
@@ -259,68 +327,80 @@ paths:
       summary: Server info
       tags:
       - Server
-  /invite/signup:
+  /me:
+    get:
+      description: The authenticated caller's id, display name and avatar.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MeResponse'
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Own profile
+      tags:
+      - Users
+  /me/avatar:
     post:
       consumes:
-      - application/json
-      description: Redeem a single-use invite into a brand-new account; no prior JWT
-        needed.
+      - multipart/form-data
+      description: Uploads an image through the same pipeline as attachments and points
+        the caller's avatar at it.
       parameters:
-      - description: Invite token + credentials
-        in: body
-        name: signup
+      - description: Image file
+        in: formData
+        name: file
         required: true
-        schema:
-          $ref: '#/definitions/handlers.InviteSignupRequest'
+        type: file
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.InviteSignupResponse'
-        "400":
-          description: invalid body
+            $ref: '#/definitions/attachment.Attachment'
+        "413":
+          description: file exceeds the maximum upload size
           schema:
             type: string
-        "403":
-          description: server not claimed yet
+        "415":
+          description: unsupported image format
           schema:
             type: string
-        "409":
-          description: username taken
+        "429":
+          description: rate limit exceeded
           schema:
             type: string
-        "410":
-          description: invalid or expired invite
-          schema:
-            type: string
-      summary: Invite signup
+      security:
+      - BearerAuth: []
+      summary: Set own avatar
       tags:
-      - Invite
-  /invite/status:
+      - Users
+  /pow/challenge:
     get:
-      description: Validate an invite link before showing the signup form.
-      parameters:
-      - description: Invite token
-        in: query
-        name: token
-        required: true
-        type: string
+      description: Issues an Altcha-compatible challenge. Solve it and send the base64
+        solution in the "altcha" field of the login, claim or invite-signup request.
+        Returns 404 when POW_ENABLED is off.
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.InviteStatusResponse'
-        "410":
-          description: invalid or expired invite
+            $ref: '#/definitions/pow.Challenge'
+        "404":
+          description: proof of work is disabled
           schema:
             type: string
-      summary: Invite status
+      summary: Proof-of-work challenge
       tags:
-      - Invite
+      - Users
   /server:
     get:
       description: List the servers the authenticated user is a member of
@@ -396,6 +476,89 @@ paths:
       summary: Create invite
       tags:
       - Invite
+  /server/{id}/members:
+    get:
+      description: 'Member-only. The roster of a server: every member with their display
+        name, avatar and owner flag, plus whether they currently have a live WebSocket
+        connection.'
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.MemberInfo'
+            type: array
+        "400":
+          description: invalid server id
+          schema:
+            type: string
+        "403":
+          description: forbidden
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Server members
+      tags:
+      - Server
+  /server/{id}/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Member-only. Multipart upload of one image (field "file"). The
+        file is validated by magic number, decoded, stripped of all metadata by re-encoding
+        its pixels, thumbnailed and stored. The uploaded bytes are discarded.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Image file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/attachment.Attachment'
+        "400":
+          description: image could not be decoded
+          schema:
+            type: string
+        "413":
+          description: file exceeds the maximum upload size
+          schema:
+            type: string
+        "415":
+          description: unsupported image format
+          schema:
+            type: string
+        "422":
+          description: image dimensions exceed the configured limit
+          schema:
+            type: string
+        "429":
+          description: rate limit exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Upload an image
+      tags:
+      - Attachment
 securityDefinitions:
   BearerAuth:
     description: 'Type "Bearer" followed by a space and the JWT returned by /auth/login.

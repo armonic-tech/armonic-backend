@@ -100,6 +100,7 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		JWTSecret:     "test-jwt-secret",
 		ClaimPassword: "smoke-test-claim-password",
 		MaxMsgLen:     2000,
+		Upload:        config.UploadConfig{Dir: t.TempDir()},
 	}
 
 	repos := repo.InitRepositories(testDB)
