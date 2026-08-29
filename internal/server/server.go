@@ -11,15 +11,18 @@ import (
 	"github.com/armonic-tech/armonic-backend/internal/auth"
 	"github.com/armonic-tech/armonic-backend/internal/claim"
 	"github.com/armonic-tech/armonic-backend/internal/handlers"
+	"github.com/armonic-tech/armonic-backend/internal/media"
 	"github.com/armonic-tech/armonic-backend/internal/models/app"
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
+	"github.com/armonic-tech/armonic-backend/pkg/pow"
+	"github.com/armonic-tech/armonic-backend/pkg/ratelimit"
 	"github.com/google/uuid"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-// defaultServerSettingsKey stores the ID of the single bootstrap server
-// created on first run. handleCreateServer (session_server.go) lets an
-// authenticated owner create further servers beyond this one.
+// defaultServerSettingsKey stores the ID of the bootstrap server created on
+// first run. It is the *only* server an instance ever has: one instance is one
+// server, so nothing outside ensureDefaultServer calls ServerRepo.Create.
 const defaultServerSettingsKey = "default_server_id"
 
 type Server struct {
@@ -31,6 +34,7 @@ type Server struct {
 type memberChecker interface {
 	IsMember(ctx context.Context, userID, serverID string) (bool, error)
 	IsMemberByChannel(ctx context.Context, userID, channelID string) (bool, error)
+	IsMemberByAttachment(ctx context.Context, userID, attachmentID string) (bool, error)
 }
 
 type ownerChecker interface {
@@ -60,9 +64,12 @@ func (r *Router) Member(pattern string, h http.HandlerFunc) {
 	r.mux.Handle(pattern, r.requireJWT(r.requireMember(h)))
 }
 
-// for channel-scoped routes like GET /channel/{id} and GET /channel/{id}/messages
 func (r *Router) MemberByChannel(pattern string, h http.HandlerFunc) {
 	r.mux.Handle(pattern, r.requireJWT(r.requireMemberByChannel(h)))
+}
+
+func (r *Router) MemberByAttachment(pattern string, h http.HandlerFunc) {
+	r.mux.Handle(pattern, r.requireJWT(r.requireMemberByAttachment(h)))
 }
 
 // the caller must own the server
@@ -80,6 +87,12 @@ func (r *Router) requireMember(next http.Handler) http.Handler {
 func (r *Router) requireMemberByChannel(next http.Handler) http.Handler {
 	return r.authorize(next, func(ctx context.Context, userID, pathID string) (bool, error) {
 		return r.member.IsMemberByChannel(ctx, userID, pathID)
+	})
+}
+
+func (r *Router) requireMemberByAttachment(next http.Handler) http.Handler {
+	return r.authorize(next, func(ctx context.Context, userID, pathID string) (bool, error) {
+		return r.member.IsMemberByAttachment(ctx, userID, pathID)
 	})
 }
 
@@ -138,6 +151,15 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 		return nil, err
 	}
 
+	blobs, err := media.NewStore(cfg.Upload.Dir)
+	if err != nil {
+		return nil, err
+	}
+	ipKey, err := newIPKey(cfg.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+
 	authSvc := auth.NewService(cfg.JWTSecret, repos.Users())
 	appState := app.NewApp()
 
@@ -149,11 +171,14 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 		repos.Channels(),
 		repos.Invites(),
 		repos.Users(),
+		repos.Attachments(),
 		authSvc,
 		cfg,
 	)
+	uploads := handlers.NewUploads(blobs, repos.Attachments(), cfg.Upload)
 
 	claimMgr := claim.New(cfg.ClaimPassword)
+	powMgr := pow.New(cfg.Pow.Enabled, cfg.JWTSecret, cfg.Pow.MaxNumber, cfg.Pow.TTL)
 
 	claimed := func() bool {
 		v, _ := repos.Settings().Get(context.Background(), "owner")
@@ -167,19 +192,43 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	router.Public("/ws", wsHandler.HandleWebSocket) // WS authenticates via its first "auth" message, not a header
 	router.Public("/info", handlers.InfoHandler(cfg, memberCounter, defaultServerID, claimed))
 	router.Public("GET /swagger/", httpSwagger.WrapHandler)
-	router.Public("POST /claim/password", handlers.ClaimPasswordHandler(claimMgr, claimed))
-	router.Public("POST /claim/register", handlers.ClaimRegisterHandler(claimMgr, authSvc, repos.Settings(), repos.Servers(), repos.Memberships(), defaultServerID, claimed))
-	router.Public("POST /auth/login", handlers.LoginHandler(authSvc, claimed))
-	router.Public("POST /invite/signup", handlers.InviteSignupHandler(repos.Invites(), authSvc, repos.Memberships(), claimed))
-	router.Public("GET /invite/status", handlers.InviteStatusHandler(repos.Invites()))
+	router.Public("GET /pow/challenge", chain(handlers.PowChallenge(powMgr),
+		perIP(powChallengePerMin, powChallengeBurst, ipKey),
+	))
+	router.Public("POST /claim/password", chain(handlers.ClaimPasswordHandler(claimMgr, claimed, powMgr),
+		perIP(claimPerIPPerMin, claimBurst, ipKey),
+		global(claimGlobalPerMin, claimBurst),
+	))
+	router.Public("POST /claim/register", chain(
+		handlers.ClaimRegisterHandler(claimMgr, authSvc, repos.Settings(), repos.Servers(), repos.Memberships(), defaultServerID, claimed),
+		perIP(claimPerIPPerMin, claimBurst, ipKey),
+		global(claimGlobalPerMin, claimBurst),
+	))
+	router.Public("POST /auth/login", chain(
+		handlers.LoginHandler(authSvc, claimed, ratelimit.New(loginPerAccountPerMin, loginBurst), powMgr),
+		perIP(loginPerIPPerMin, loginBurst, ipKey),
+	))
+	router.Public("POST /invite/signup", chain(
+		handlers.InviteSignupHandler(repos.Invites(), authSvc, repos.Memberships(), claimed, powMgr),
+		perIP(signupPerIPPerMin, signupBurst, ipKey),
+	))
+	router.Public("GET /invite/status", chain(handlers.InviteStatusHandler(repos.Invites()),
+		perIP(signupPerIPPerMin, signupBurst, ipKey),
+	))
 
 	// protected
 	// JWT only
 	router.Protected("GET /server", handlers.GetMyServers(repos.Memberships(), repos.Servers()))
+	router.Protected("GET /me", handlers.GetMe(repos.Users()))
+	router.Protected("POST /me/avatar", uploads.Avatar(repos.Users(), defaultServerID))
 	// JWT + membership
 	router.Member("GET /server/{id}", handlers.GetByServer(repos.Channels()))
+	router.Member("GET /server/{id}/members", handlers.GetServerMembers(repos.Memberships(), appState))
+	router.Member("POST /server/{id}/upload", uploads.Upload())
 	router.MemberByChannel("GET /channel/{id}", handlers.GetChannelByID(repos.Channels(), appState))
 	router.MemberByChannel("GET /channel/{id}/messages", handlers.GetChannelMessages(repos.Channels(), repos.Messages()))
+	router.MemberByAttachment("GET /attachment/{id}", uploads.Serve(media.VariantFull))
+	router.MemberByAttachment("GET /attachment/{id}/thumb", uploads.Serve(media.VariantThumb))
 	// JWT + ownership
 	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
 

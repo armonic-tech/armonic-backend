@@ -17,8 +17,8 @@ import (
 const testSecret = "test-secret"
 
 type fakeAuthz struct {
-	member, memberByChannel, owner bool
-	err                            error
+	member, memberByChannel, memberByAttachment, owner bool
+	err                                                error
 }
 
 func (f fakeAuthz) IsMember(context.Context, string, string) (bool, error) {
@@ -26,6 +26,9 @@ func (f fakeAuthz) IsMember(context.Context, string, string) (bool, error) {
 }
 func (f fakeAuthz) IsMemberByChannel(context.Context, string, string) (bool, error) {
 	return f.memberByChannel, f.err
+}
+func (f fakeAuthz) IsMemberByAttachment(context.Context, string, string) (bool, error) {
+	return f.memberByAttachment, f.err
 }
 func (f fakeAuthz) IsOwner(context.Context, string, string) (bool, error) {
 	return f.owner, f.err
@@ -55,6 +58,7 @@ func newTestRouter(fake fakeAuthz) *Router {
 	r := NewRouter(authSvc, fake, fake)
 	r.Member("GET /server/{id}", echoUserID)
 	r.MemberByChannel("GET /channel/{id}", echoUserID)
+	r.MemberByAttachment("GET /attachment/{id}", echoUserID)
 	r.Owner("GET /own/{id}", echoUserID)
 	return r
 }

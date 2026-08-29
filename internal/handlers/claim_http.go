@@ -20,9 +20,10 @@ type ServerOwnerSetter interface {
 	SetOwner(ctx context.Context, serverID, ownerID string) error
 }
 
-func ClaimPasswordHandler(mgr *claim.Manager, claimed func() bool) http.HandlerFunc {
+func ClaimPasswordHandler(mgr *claim.Manager, claimed func() bool, verifier PowChecker) http.HandlerFunc {
 	type request struct {
 		Password string `json:"password"`
+		Altcha   string `json:"altcha,omitempty"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +35,10 @@ func ClaimPasswordHandler(mgr *claim.Manager, claimed func() bool) http.HandlerF
 		var req request
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+
+		if !checkPow(w, verifier, req.Altcha) {
 			return
 		}
 

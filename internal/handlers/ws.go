@@ -33,6 +33,7 @@ func newUpgrader(allowedOrigins []string) websocket.Upgrader {
 
 type MessageRepo interface {
 	Save(ctx context.Context, msg message.Message) error
+	SoftDelete(ctx context.Context, serverID, channelID, messageID, deletedBy string) (bool, error)
 }
 
 type MembershipRepo interface {
@@ -49,7 +50,10 @@ type ServerRepo interface {
 
 type ChannelRepo interface {
 	Create(ctx context.Context, id, serverID, name, chType string) error
+	NameTaken(ctx context.Context, serverID, chType, name string) (bool, error)
+	GetByID(ctx context.Context, id string) (*channel.ChannelInfo, error)
 	GetChannelByServer(ctx context.Context, serverID string) ([]channel.ChannelInfo, error)
+	SoftDelete(ctx context.Context, serverID, channelID string) (bool, error)
 }
 
 type InviteRepo interface {
@@ -64,6 +68,7 @@ type Authenticator interface {
 type UserRepo interface {
 	Upsert(ctx context.Context, id, displayName string) error
 	GetName(ctx context.Context, id string) (string, error)
+	GetProfile(ctx context.Context, id string) (displayName, avatarID string, err error)
 }
 
 type WSHandler struct {
@@ -74,12 +79,13 @@ type WSHandler struct {
 	channelRepo    ChannelRepo
 	inviteRepo     InviteRepo
 	userRepo       UserRepo
+	attachmentRepo AttachmentRepository
 	auth           Authenticator
 	cfg            config.Config
 	upgrader       websocket.Upgrader
 }
 
-func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, v Authenticator, cfg config.Config) *WSHandler {
+func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server ServerRepo, ch ChannelRepo, inv InviteRepo, users UserRepo, att AttachmentRepository, v Authenticator, cfg config.Config) *WSHandler {
 	return &WSHandler{
 		app:            a,
 		messageRepo:    msg,
@@ -88,6 +94,7 @@ func NewWSHandler(a *app.App, msg MessageRepo, membership MembershipRepo, server
 		channelRepo:    ch,
 		inviteRepo:     inv,
 		userRepo:       users,
+		attachmentRepo: att,
 		auth:           v,
 		cfg:            cfg,
 		upgrader:       newUpgrader(cfg.AllowedOrigins),
@@ -153,12 +160,16 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleVoiceState(msg)
 		case "leave-voice":
 			s.handleLeaveVoice()
-		case "create-server":
-			s.handleCreateServer(msg)
 		case "join-server":
 			s.handleJoinServer(msg)
 		case "text-message":
 			s.handleTextMessage(msg)
+		case "delete-message":
+			s.handleDeleteMessage(msg)
+		case "create-channel":
+			s.handleCreateChannel(msg)
+		case "delete-channel":
+			s.handleDeleteChannel(msg)
 		case "kick-voice":
 			s.handleKickVoice(msg)
 		case "kick-server":

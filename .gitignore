@@ -4,3 +4,5 @@ docs/*
 !docs/swagger.json
 !docs/swagger.yaml
 docker-compose.dev.yml
+data/
+*.env

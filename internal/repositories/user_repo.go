@@ -31,6 +31,22 @@ func (r *UserRepo) GetName(ctx context.Context, id string) (string, error) {
 	return name, err
 }
 
+func (r *UserRepo) GetProfile(ctx context.Context, id string) (displayName, avatarID string, err error) {
+	var avatar sql.NullString
+	err = r.db.QueryRowContext(ctx,
+		`SELECT display_name, avatar_id FROM users WHERE id = $1`, id,
+	).Scan(&displayName, &avatar)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	return displayName, avatar.String, err
+}
+
+func (r *UserRepo) SetAvatar(ctx context.Context, id, attachmentID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET avatar_id = $1 WHERE id = $2`, attachmentID, id)
+	return err
+}
+
 func (r *UserRepo) Create(ctx context.Context, id, username, passwordHash string) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO users (id, display_name, username, password_hash) VALUES ($1, $2, $3, $4)`,

@@ -21,11 +21,13 @@ func Migrate(db *sql.DB) error {
 			created_at BIGINT NOT NULL
 		);
 		CREATE TABLE IF NOT EXISTS channels (
-			id        TEXT PRIMARY KEY,
-			server_id TEXT NOT NULL,
-			name      TEXT NOT NULL,
-			type      TEXT NOT NULL
+			id         TEXT PRIMARY KEY,
+			server_id  TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			type       TEXT NOT NULL,
+			deleted_at BIGINT
 		);
+		ALTER TABLE channels ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
 		CREATE TABLE IF NOT EXISTS memberships (
 			user_id   TEXT NOT NULL,
 			server_id TEXT NOT NULL,
@@ -37,8 +39,12 @@ func Migrate(db *sql.DB) error {
 			channel_id TEXT NOT NULL,
 			user_id    TEXT NOT NULL,
 			content    TEXT NOT NULL,
-			created_at BIGINT NOT NULL
+			created_at BIGINT NOT NULL,
+			deleted_at BIGINT,
+			deleted_by TEXT
 		);
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 		CREATE TABLE IF NOT EXISTS invites (
 			token      TEXT PRIMARY KEY,
 			server_id  TEXT NOT NULL,
@@ -51,6 +57,21 @@ func Migrate(db *sql.DB) error {
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS attachments (
+			id           TEXT PRIMARY KEY,
+			hash         TEXT NOT NULL,
+			server_id    TEXT NOT NULL,
+			user_id      TEXT NOT NULL,
+			format       TEXT NOT NULL,
+			thumb_format TEXT NOT NULL,
+			mime         TEXT NOT NULL,
+			size         BIGINT NOT NULL,
+			width        INT NOT NULL,
+			height       INT NOT NULL,
+			created_at   BIGINT NOT NULL
+		);
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id TEXT;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_id TEXT;
 
 		CREATE INDEX IF NOT EXISTS idx_messages_channel
 			ON messages(server_id, channel_id, created_at DESC);
@@ -58,8 +79,13 @@ func Migrate(db *sql.DB) error {
 			ON memberships(user_id);
 		CREATE INDEX IF NOT EXISTS idx_channels_server
 			ON channels(server_id);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_unique_name
+			ON channels(server_id, type, lower(name))
+			WHERE deleted_at IS NULL;
 		CREATE INDEX IF NOT EXISTS idx_invites_expires
 			ON invites(expires_at);
+		CREATE INDEX IF NOT EXISTS idx_attachments_hash
+			ON attachments(hash);
 	`)
 	return err
 }

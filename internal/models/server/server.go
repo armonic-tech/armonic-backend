@@ -38,6 +38,17 @@ func (s *Server) RemoveConnectedUser(userID string) {
 	delete(s.ConnectedUsers, userID)
 }
 
+func (s *Server) ConnectedUserIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := make([]string, 0, len(s.ConnectedUsers))
+	for id := range s.ConnectedUsers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (s *Server) BroadcastMessage(senderID string, msg any) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -88,6 +99,20 @@ func (s *Server) AddTextChannel(id string) *channel.TextChannel {
 	ch := channel.NewTextChannel(id, s.ID)
 	s.TextChannels[id] = ch
 	return ch
+}
+
+func (s *Server) RemoveVoiceChannel(id string) *channel.VoiceChannel {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vc := s.VoiceChannels[id]
+	delete(s.VoiceChannels, id)
+	return vc
+}
+
+func (s *Server) RemoveTextChannel(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.TextChannels, id)
 }
 
 func (s *Server) KickUserFromAllVoice(userID string) {

@@ -214,3 +214,77 @@ func TestGetChannelMessages_BadLimitFallsBackToDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, defaultMessageLimit, msgs.gotLimit)
 }
+
+type fakeMembers struct {
+	list []server.MemberInfo
+	err  error
+}
+
+func (f fakeMembers) GetMembers(context.Context, string) ([]server.MemberInfo, error) {
+	return f.list, f.err
+}
+
+type fakePresence struct{ online []string }
+
+func (f fakePresence) ConnectedUserIDs(string) []string { return f.online }
+
+const rosterServerID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+
+func TestGetServerMembersMarksOnlineAndAvatarURLs(t *testing.T) {
+	members := fakeMembers{list: []server.MemberInfo{
+		{ID: "u1", DisplayName: "ada", AvatarID: "att-1", IsOwner: true},
+		{ID: "u2", DisplayName: "bob"},
+	}}
+	h := GetServerMembers(members, fakePresence{online: []string{"u2"}})
+
+	r := httptest.NewRequest(http.MethodGet, "/server/"+rosterServerID+"/members", nil)
+	r.SetPathValue("id", rosterServerID)
+	w := httptest.NewRecorder()
+	h(w, r)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got []server.MemberInfo
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got, 2)
+
+	require.True(t, got[0].IsOwner)
+	require.False(t, got[0].Online)
+	require.Equal(t, "/attachment/att-1", got[0].AvatarURL)
+
+	require.False(t, got[1].IsOwner)
+	require.True(t, got[1].Online)
+	// No avatar set, so no URL is invented.
+	require.Empty(t, got[1].AvatarURL)
+}
+
+func TestGetServerMembersEmptyRosterIsAnArray(t *testing.T) {
+	h := GetServerMembers(fakeMembers{}, fakePresence{})
+
+	r := httptest.NewRequest(http.MethodGet, "/server/"+rosterServerID+"/members", nil)
+	r.SetPathValue("id", rosterServerID)
+	w := httptest.NewRecorder()
+	h(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.JSONEq(t, "[]", w.Body.String())
+}
+
+func TestGetServerMembersRejectsNonUUID(t *testing.T) {
+	h := GetServerMembers(fakeMembers{}, fakePresence{})
+
+	r := httptest.NewRequest(http.MethodGet, "/server/nope/members", nil)
+	r.SetPathValue("id", "nope")
+	w := httptest.NewRecorder()
+	h(w, r)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetServerMembersRepoError(t *testing.T) {
+	h := GetServerMembers(fakeMembers{err: errors.New("boom")}, fakePresence{})
+
+	r := httptest.NewRequest(http.MethodGet, "/server/"+rosterServerID+"/members", nil)
+	r.SetPathValue("id", rosterServerID)
+	w := httptest.NewRecorder()
+	h(w, r)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
