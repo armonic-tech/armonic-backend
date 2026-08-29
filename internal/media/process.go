@@ -11,10 +11,11 @@ import (
 
 	"golang.org/x/image/draw"
 
-	"golang.org/x/image/webp"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	"golang.org/x/image/webp"
 )
 
 var (
@@ -145,15 +146,80 @@ func processGIF(raw []byte, lim Limits) (*Image, error) {
 		return nil, ErrCorrupt
 	}
 
-	thumb, err := encode(thumbnail(flatten(g.Image[0], w, h), lim.ThumbSize), PNG)
-	if err != nil {
-		return nil, err
+	if len(g.Image) == 1 {
+		thumb, err := encode(thumbnail(flatten(g.Image[0], w, h), lim.ThumbSize), PNG)
+		if err != nil {
+			return nil, err
+		}
+		return &Image{
+			Format: GIF, ThumbFormat: PNG,
+			Width: w, Height: h,
+			Data: buf.Bytes(), Thumb: thumb,
+		}, nil
+	}
+
+	thumb := buf.Bytes()
+	if lim.ThumbSize > 0 && (w > lim.ThumbSize || h > lim.ThumbSize) {
+		var tbuf bytes.Buffer
+		if err := gif.EncodeAll(&tbuf, gifThumbnail(g, w, h, lim.ThumbSize)); err != nil {
+			return nil, ErrCorrupt
+		}
+		thumb = tbuf.Bytes()
 	}
 	return &Image{
-		Format: GIF, ThumbFormat: PNG,
+		Format: GIF, ThumbFormat: GIF,
 		Width: w, Height: h,
 		Data: buf.Bytes(), Thumb: thumb,
 	}, nil
+}
+
+// gifThumbnail downscales an animated GIF to fit maxSide. Source frames can be
+// partial rectangles composed over whatever earlier frames left behind, so
+// scaling frames one by one would corrupt the animation; instead each output
+// frame is the fully composed canvas at that point, scaled and re-palettized,
+// which bakes the disposal/offset bookkeeping into plain full-size frames.
+func gifThumbnail(g *gif.GIF, w, h, maxSide int) *gif.GIF {
+	scale := float64(maxSide) / float64(max(w, h))
+	tw := max(1, int(float64(w)*scale))
+	th := max(1, int(float64(h)*scale))
+
+	out := &gif.GIF{
+		LoopCount: g.LoopCount,
+		Config:    image.Config{Width: tw, Height: th},
+	}
+	canvas := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for i, frame := range g.Image {
+		var before *image.NRGBA
+		if i < len(g.Disposal) && g.Disposal[i] == gif.DisposalPrevious {
+			before = image.NewNRGBA(canvas.Rect)
+			copy(before.Pix, canvas.Pix)
+		}
+		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+
+		scaled := image.NewNRGBA(image.Rect(0, 0, tw, th))
+		draw.ApproxBiLinear.Scale(scaled, scaled.Bounds(), canvas, canvas.Bounds(), draw.Src, nil)
+		pal := image.NewPaletted(scaled.Bounds(), frame.Palette)
+		draw.FloydSteinberg.Draw(pal, pal.Bounds(), scaled, image.Point{})
+
+		out.Image = append(out.Image, pal)
+		if i < len(g.Delay) {
+			out.Delay = append(out.Delay, g.Delay[i])
+		} else {
+			out.Delay = append(out.Delay, 0)
+		}
+
+		out.Disposal = append(out.Disposal, gif.DisposalBackground)
+
+		if i < len(g.Disposal) {
+			switch g.Disposal[i] {
+			case gif.DisposalBackground:
+				draw.Draw(canvas, frame.Bounds(), image.Transparent, image.Point{}, draw.Src)
+			case gif.DisposalPrevious:
+				canvas = before
+			}
+		}
+	}
+	return out
 }
 
 func (l Limits) check(width, height, frames int) error {

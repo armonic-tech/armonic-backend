@@ -48,8 +48,10 @@ func (s *Store) Put(hash, variant string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(path); err == nil {
-		return nil
+	if variant == VariantFull {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err

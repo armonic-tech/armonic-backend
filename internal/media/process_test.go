@@ -200,11 +200,39 @@ func TestProcessPreservesGIFAnimation(t *testing.T) {
 	img, err := Process(bytes.NewReader(encodeGIF(t, 4, 40, 20)), testLimits())
 	require.NoError(t, err)
 	require.Equal(t, GIF, img.Format)
-	require.Equal(t, PNG, img.ThumbFormat)
 
 	g, err := gif.DecodeAll(bytes.NewReader(img.Data))
 	require.NoError(t, err)
 	require.Len(t, g.Image, 4)
+
+	require.Equal(t, GIF, img.ThumbFormat)
+	require.Equal(t, img.Data, img.Thumb)
+}
+
+func TestProcessAnimatedGIFThumbnailStaysAnimated(t *testing.T) {
+	img, err := Process(bytes.NewReader(encodeGIF(t, 4, 200, 100)), testLimits())
+	require.NoError(t, err)
+	require.Equal(t, GIF, img.ThumbFormat)
+
+	g, err := gif.DecodeAll(bytes.NewReader(img.Thumb))
+	require.NoError(t, err)
+	require.Len(t, g.Image, 4)
+	require.Equal(t, []int{10, 10, 10, 10}, g.Delay)
+	require.LessOrEqual(t, g.Config.Width, 64)
+	require.LessOrEqual(t, g.Config.Height, 64)
+	for _, frame := range g.Image {
+		b := frame.Bounds()
+		require.LessOrEqual(t, b.Dx(), 64)
+		require.LessOrEqual(t, b.Dy(), 64)
+	}
+}
+
+func TestProcessSingleFrameGIFThumbnailIsPNG(t *testing.T) {
+	img, err := Process(bytes.NewReader(encodeGIF(t, 1, 200, 100)), testLimits())
+	require.NoError(t, err)
+	require.Equal(t, GIF, img.Format)
+	require.Equal(t, PNG, img.ThumbFormat)
+	require.True(t, bytes.HasPrefix(img.Thumb, magicPNG))
 }
 
 func TestProcessReencodesWebPAsPNG(t *testing.T) {

@@ -5,3 +5,4 @@ docs/*
 !docs/swagger.yaml
 docker-compose.dev.yml
 data/
+*.env

@@ -59,6 +59,23 @@ func TestStorePutIsIdempotent(t *testing.T) {
 	require.Equal(t, payload, got)
 }
 
+func TestStorePutRewritesThumbs(t *testing.T) {
+	s, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	payload := []byte("same content, same hash")
+	hash := Hash(payload)
+	require.NoError(t, s.Put(hash, VariantThumb, []byte("old thumb")))
+	require.NoError(t, s.Put(hash, VariantThumb, []byte("new thumb")))
+
+	body, _, err := s.Open(hash, VariantThumb)
+	require.NoError(t, err)
+	defer body.Close()
+	got, err := io.ReadAll(body)
+	require.NoError(t, err)
+	require.Equal(t, []byte("new thumb"), got)
+}
+
 func TestStoreLeavesNoTempFilesBehind(t *testing.T) {
 	root := t.TempDir()
 	s, err := NewStore(root)
