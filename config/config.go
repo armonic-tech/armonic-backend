@@ -24,9 +24,12 @@ type Config struct {
 	TrustedProxies    []string
 	Upload            UploadConfig
 	Pow               PowConfig
+	DebugPprof        bool
 	RTC               struct {
 		StunServers []string `json:"stun_servers"`
 		TurnServers []string `json:"turn_servers"`
+		UDPPort     int      `json:"udp_port"`
+		HostIPs     []string `json:"host_ips"`
 	} `json:"rtc"`
 }
 
@@ -80,6 +83,10 @@ func Load() (Config, error) {
 	if turnServers != "" {
 		cfg.RTC.TurnServers = strings.Split(turnServers, ",")
 	}
+
+	cfg.RTC.UDPPort = getEnvInt("RTC_UDP_PORT", 50000)
+	cfg.RTC.HostIPs = getEnvList("RTC_HOST_IPS")
+	cfg.DebugPprof = getEnvBool("DEBUG_PPROF", false)
 
 	cfg.AllowedOrigins = getEnvList("CORS_ALLOWED_ORIGINS")
 	cfg.TrustedProxies = getEnvList("TRUSTED_PROXIES")

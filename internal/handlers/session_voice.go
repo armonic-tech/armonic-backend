@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"log/slog"
+
+	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
 	"github.com/armonic-tech/armonic-backend/internal/models/user"
 	"github.com/armonic-tech/armonic-backend/internal/transport/rtc"
 	"github.com/armonic-tech/armonic-backend/pkg/logger"
-	"log/slog"
 
 	"github.com/pion/webrtc/v3"
 )
@@ -32,11 +34,13 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	u := &user.User{
 		ID:             s.user.ID,
 		DisplayName:    s.user.DisplayName,
+		AvatarID:       s.user.AvatarID,
 		Signaling:      s.conn,
 		Media:          rtcConn,
 		VoiceChannelID: msg.ChannelID,
 		ServerID:       msg.ServerID,
 	}
+	u.SetVoiceState(s.user.IsMuted(), s.user.IsDeafened())
 
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
@@ -83,11 +87,23 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 
 func (s *connSession) handleAnswer(msg signal.Message) {
 	if msg.SDP == nil || s.user.Media == nil {
+		slog.WarnContext(s.ctx, "voice: answer dropped", logger.User(s.user.ID),
+			"sdp_nil", msg.SDP == nil, "media_nil", s.user.Media == nil)
 		return
 	}
 	if err := s.user.Media.SetRemoteDescription(*msg.SDP); err != nil {
 		slog.ErrorContext(s.ctx, "handleAnswer error", logger.User(s.user.ID), "error", err)
+		return
 	}
+	slog.DebugContext(s.ctx, "voice: answer applied", logger.User(s.user.ID),
+		"answer", channel.SDPSummary(msg.SDP.SDP))
+	if s.user.VoiceChannelID == "" {
+		return
+	}
+	srv := s.h.app.GetOrCreateServer(s.user.ServerID)
+	ch := srv.GetOrCreateVoiceChannel(s.user.VoiceChannelID)
+
+	go ch.AttachPending(s.user)
 }
 
 func (s *connSession) handleCandidate(msg signal.Message) {

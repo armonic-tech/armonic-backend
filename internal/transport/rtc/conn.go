@@ -1,19 +1,24 @@
 package rtc
 
-import "github.com/pion/webrtc/v3"
+import (
+	"errors"
+	"sync"
+
+	"github.com/pion/webrtc/v3"
+)
+
+const maxPendingCandidates = 64
 
 type WebRTCConn struct {
 	pc *webrtc.PeerConnection
-}
 
-var defaultConfig = webrtc.Configuration{
-	ICEServers: []webrtc.ICEServer{
-		{URLs: []string{"stun:stun.l.google.com:19302"}},
-	},
+	mu            sync.Mutex
+	remoteDescSet bool
+	pending       []webrtc.ICECandidateInit
 }
 
 func NewWebRTCConn() (*WebRTCConn, error) {
-	pc, err := webrtc.NewPeerConnection(defaultConfig)
+	pc, err := newPeerConnection()
 	if err != nil {
 		return nil, err
 	}
@@ -48,15 +53,45 @@ func (w *WebRTCConn) SetLocalDescription(sdp webrtc.SessionDescription) error {
 }
 
 func (w *WebRTCConn) SetRemoteDescription(sdp webrtc.SessionDescription) error {
-	return w.pc.SetRemoteDescription(sdp)
+	if err := w.pc.SetRemoteDescription(sdp); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	pending := w.pending
+	w.pending = nil
+	w.remoteDescSet = true
+	w.mu.Unlock()
+
+	var errs []error
+	for _, c := range pending {
+		if err := w.pc.AddICECandidate(c); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (w *WebRTCConn) AddICECandidate(candidate webrtc.ICECandidateInit) error {
+	w.mu.Lock()
+	if !w.remoteDescSet {
+		if len(w.pending) < maxPendingCandidates {
+			w.pending = append(w.pending, candidate)
+		}
+		w.mu.Unlock()
+		return nil
+	}
+	w.mu.Unlock()
 	return w.pc.AddICECandidate(candidate)
 }
 
 func (w *WebRTCConn) AddTrack(track *webrtc.TrackLocalStaticRTP) (*webrtc.RTPSender, error) {
-	return w.pc.AddTrack(track)
+	tr, err := w.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tr.Sender(), nil
 }
 
 func (w *WebRTCConn) OnTrack(f func(*webrtc.TrackRemote, *webrtc.RTPReceiver)) {

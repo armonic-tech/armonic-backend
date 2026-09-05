@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"strings"
 
 	"github.com/rs/cors"
@@ -14,6 +16,7 @@ import (
 	"github.com/armonic-tech/armonic-backend/internal/media"
 	"github.com/armonic-tech/armonic-backend/internal/models/app"
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
+	"github.com/armonic-tech/armonic-backend/internal/transport/rtc"
 	"github.com/armonic-tech/armonic-backend/pkg/pow"
 	"github.com/armonic-tech/armonic-backend/pkg/ratelimit"
 	"github.com/google/uuid"
@@ -160,6 +163,14 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 		return nil, err
 	}
 
+	if err := rtc.Configure(rtc.Config{
+		STUNServers: cfg.RTC.StunServers,
+		UDPPort:     cfg.RTC.UDPPort,
+		HostIPs:     cfg.RTC.HostIPs,
+	}); err != nil {
+		return nil, err
+	}
+
 	authSvc := auth.NewService(cfg.JWTSecret, repos.Users())
 	appState := app.NewApp()
 
@@ -192,6 +203,11 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	router.Public("/ws", wsHandler.HandleWebSocket) // WS authenticates via its first "auth" message, not a header
 	router.Public("/info", handlers.InfoHandler(cfg, memberCounter, defaultServerID, claimed))
 	router.Public("GET /swagger/", httpSwagger.WrapHandler)
+
+	if cfg.DebugPprof { // Debug only, off by default
+		router.Public("GET /debug/pprof/", pprof.Index)
+		slog.WarnContext(ctx, "pprof endpoints enabled do not leave this on")
+	}
 	router.Public("GET /pow/challenge", chain(handlers.PowChallenge(powMgr),
 		perIP(powChallengePerMin, powChallengeBurst, ipKey),
 	))

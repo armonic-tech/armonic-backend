@@ -139,6 +139,8 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		slog.DebugContext(s.ctx, "ws: frame", "type", msg.Type)
+
 		if s.user == nil && msg.Type != "auth" {
 			s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
 			break
