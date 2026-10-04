@@ -64,7 +64,7 @@ func Configure(cfg Config) error {
 		slog.Info("rtc: advertising only these addresses", "ips", cfg.HostIPs)
 	}
 
-	se := webrtc.SettingEngine{}
+	se := webrtc.SettingEngine{LoggerFactory: slogFactory{}}
 	se.SetInterfaceFilter(usableInterface)
 	se.SetIPFilter(usableIP)
 
@@ -83,9 +83,10 @@ func Configure(cfg Config) error {
 			slog.Warn("rtc: could not grow the write buffer", "error", err)
 		}
 		mux = conn
-		se.SetICEUDPMux(webrtc.NewICEUDPMux(nil, conn))
+		se.SetICEUDPMux(webrtc.NewICEUDPMux(slogFactory{}.NewLogger("ice-udp-mux"), conn))
 	}
 
+	slog.Info("rtc: configured", "udp_port", cfg.UDPPort, "ice_servers", len(iceServers), "host_ips", cfg.HostIPs)
 	api = webrtc.NewAPI(
 		webrtc.WithMediaEngine(m),
 		webrtc.WithInterceptorRegistry(ir),
@@ -97,6 +98,7 @@ func Configure(cfg Config) error {
 func usableInterface(name string) bool {
 	for _, p := range virtualPrefixes {
 		if strings.HasPrefix(name, p) {
+			slog.Debug("rtc: interface skipped", "interface", name)
 			return false
 		}
 	}

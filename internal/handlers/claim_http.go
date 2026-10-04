@@ -44,6 +44,7 @@ func ClaimPasswordHandler(mgr *claim.Manager, claimed func() bool, verifier PowC
 
 		ticket, expiresAt, ok := mgr.VerifyPassword(req.Password)
 		if !ok {
+			slog.WarnContext(r.Context(), "claim: wrong instance password")
 			http.Error(w, "invalid password", http.StatusUnauthorized)
 			return
 		}
@@ -86,6 +87,7 @@ func ClaimRegisterHandler(mgr *claim.Manager, auth RegisterAuthenticator, settin
 			if err == authpkg.ErrUsernameTaken {
 				status = http.StatusConflict
 			}
+			slog.Log(r.Context(), levelFor(status), "claim: admin signup failed", "username", req.Username, "error", err)
 			http.Error(w, err.Error(), status)
 			return
 		}
@@ -113,7 +115,7 @@ func ClaimRegisterHandler(mgr *claim.Manager, auth RegisterAuthenticator, settin
 			return
 		}
 
-		slog.InfoContext(r.Context(), "server claimed", logger.User(claims.Sub))
+		slog.InfoContext(r.Context(), "server claimed", logger.User(claims.Sub), logger.Server(serverID), "username", req.Username)
 		mgr.InvalidateTicket()
 
 		w.Header().Set("Content-Type", "application/json")

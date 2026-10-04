@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/attachment"
 	"github.com/armonic-tech/armonic-backend/internal/models/server"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 	"github.com/google/uuid"
 )
 
@@ -48,6 +50,7 @@ func GetServerMembers(members MemberLister, presence PresenceLister) http.Handle
 
 		list, err := members.GetMembers(ctx, serverID)
 		if err != nil {
+			slog.ErrorContext(ctx, "members: error loading", logger.Server(serverID), "error", err)
 			http.Error(w, "error loading members", http.StatusInternalServerError)
 			return
 		}
@@ -90,12 +93,14 @@ func GetMyServers(memberships MembershipLister, servers ServerByIDsGetter) http.
 
 		serverIDs, err := memberships.GetByUser(ctx, userID)
 		if err != nil {
+			slog.ErrorContext(ctx, "servers: error loading memberships", "error", err)
 			http.Error(w, "error loading servers", http.StatusInternalServerError)
 			return
 		}
 
 		list, err := servers.GetByIDs(ctx, serverIDs)
 		if err != nil {
+			slog.ErrorContext(ctx, "servers: error loading", "server_ids", serverIDs, "error", err)
 			http.Error(w, "error loading servers", http.StatusInternalServerError)
 			return
 		}

@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
 	"strings"
+	"time"
 
 	"github.com/rs/cors"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/armonic-tech/armonic-backend/internal/models/app"
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
 	"github.com/armonic-tech/armonic-backend/internal/transport/rtc"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 	"github.com/armonic-tech/armonic-backend/pkg/pow"
 	"github.com/armonic-tech/armonic-backend/pkg/ratelimit"
 	"github.com/google/uuid"
@@ -28,10 +32,16 @@ import (
 // server, so nothing outside ensureDefaultServer calls ServerRepo.Create.
 const defaultServerSettingsKey = "default_server_id"
 
+const (
+	shutdownTimeout = 10 * time.Second
+	statsInterval   = 5 * time.Minute
+)
+
 type Server struct {
 	addr           string
-	mux            *http.ServeMux
+	handler        http.Handler
 	allowedOrigins []string
+	stats          func() []any
 }
 
 type memberChecker interface {
@@ -110,6 +120,7 @@ func (r *Router) authorize(next http.Handler, check func(ctx context.Context, us
 		userID, _ := handlers.UserID(req.Context())
 		ok, err := check(req.Context(), userID, req.PathValue("id"))
 		if err != nil {
+			slog.ErrorContext(req.Context(), "authorization check failed", "path_id", req.PathValue("id"), "error", err)
 			http.Error(w, "authorization check failed", http.StatusInternalServerError)
 			return
 		}
@@ -131,10 +142,17 @@ func (r *Router) requireJWT(next http.Handler) http.Handler {
 		}
 		claims, err := r.auth.Validate(req.Context(), token)
 		if err != nil {
+			if scope := scopeOf(req.Context()); scope != nil {
+				scope.authErr = err
+			}
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
+		if scope := scopeOf(req.Context()); scope != nil {
+			scope.userID = claims.Sub
+		}
 		ctx := handlers.WithUserID(req.Context(), claims.Sub)
+		ctx = logger.With(ctx, logger.User(claims.Sub))
 		next.ServeHTTP(w, req.WithContext(ctx))
 	})
 }
@@ -148,7 +166,7 @@ func bearerToken(r *http.Request) (string, bool) {
 	return strings.TrimSpace(h[len(p):]), true
 }
 
-func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Server, error) {
+func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Repositories) (*Server, error) {
 	defaultServerID, err := ensureDefaultServer(ctx, repos, cfg)
 	if err != nil {
 		return nil, err
@@ -193,7 +211,10 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	powMgr := pow.New(cfg.Pow.Enabled, cfg.JWTSecret, cfg.Pow.MaxNumber, cfg.Pow.TTL)
 
 	claimed := func() bool {
-		v, _ := repos.Settings().Get(context.Background(), "owner")
+		v, err := repos.Settings().Get(context.Background(), "owner")
+		if err != nil {
+			slog.Error("could not read claim state, treating as unclaimed", "error", err)
+		}
 		return v != ""
 	}
 	memberCounter := memberCounterAdapter{repo: repos.Memberships(), serverID: defaultServerID}
@@ -257,17 +278,68 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	// JWT + ownership
 	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
 
-	return &Server{addr: ":" + cfg.Port, mux: router.mux, allowedOrigins: cfg.AllowedOrigins}, nil
+	stats := func() []any {
+		servers, connected, voice := appState.Stats()
+		pool := db.Stats()
+		return []any{
+			"servers", servers,
+			"ws_users", connected,
+			"voice_users", voice,
+			"db_open", pool.OpenConnections,
+			"db_in_use", pool.InUse,
+			"db_wait_count", pool.WaitCount,
+			"db_wait_ms", pool.WaitDuration.Milliseconds(),
+		}
+	}
+
+	return &Server{
+		addr:           ":" + cfg.Port,
+		handler:        requestLog(router.mux, ipKey),
+		allowedOrigins: cfg.AllowedOrigins,
+		stats:          stats,
+	}, nil
 }
 
-func (s *Server) ListenAndServe() error {
+// Run serves until ctx is cancelled, then drains in-flight HTTP requests for
+// up to shutdownTimeout. Hijacked WebSockets are not tracked by Shutdown and
+// die with the process.
+func (s *Server) Run(ctx context.Context) error {
 	c := cors.New(cors.Options{
 		AllowedOrigins:   s.allowedOrigins,
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders:   []string{"X-Request-ID"},
 		AllowCredentials: len(s.allowedOrigins) > 0,
 	})
-	return http.ListenAndServe(s.addr, c.Handler(s.mux))
+	srv := &http.Server{
+		Addr:     s.addr,
+		Handler:  c.Handler(s.handler),
+		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
+	}
+
+	statsCtx, stopStats := context.WithCancel(ctx)
+	defer stopStats()
+	go logger.RuntimeStats(statsCtx, statsInterval, s.stats)
+
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+
+	slog.Info("shutting down http server", "timeout", shutdownTimeout.String())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // memberCounterAdapter binds handlers.MemberCounter (a no-arg CountAll) to a
@@ -291,6 +363,7 @@ func ensureDefaultServer(ctx context.Context, repos *repo.Repositories, cfg conf
 	}
 
 	id = uuid.New().String()
+	slog.InfoContext(ctx, "first run: creating default server", logger.Server(id))
 	if err := repos.Servers().Create(ctx, id, cfg.ServerName, ""); err != nil {
 		return "", err
 	}

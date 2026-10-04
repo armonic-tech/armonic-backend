@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -66,10 +67,10 @@ func (s *Service) Signup(ctx context.Context, username, password string) (string
 func (s *Service) Login(ctx context.Context, username, password string) (string, error) {
 	id, hash, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
-		return "", ErrInvalidCredentials
+		return "", fmt.Errorf("%w: lookup: %w", ErrInvalidCredentials, err)
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
-		return "", ErrInvalidCredentials
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 	return s.issue(id)
 }
@@ -82,7 +83,10 @@ func (s *Service) Validate(ctx context.Context, tokenStr string) (*Claims, error
 		}
 		return s.secret, nil
 	})
-	if err != nil || !token.Valid {
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
+	}
+	if !token.Valid {
 		return nil, ErrInvalidCredentials
 	}
 	return claims, nil

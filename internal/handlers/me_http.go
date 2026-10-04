@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/attachment"
-	"github.com/armonic-tech/armonic-backend/pkg/logger"
 )
 
 type ProfileGetter interface {
@@ -40,7 +39,7 @@ func GetMe(users ProfileGetter) http.HandlerFunc {
 
 		displayName, avatarID, err := users.GetProfile(ctx, userID)
 		if err != nil {
-			slog.ErrorContext(ctx, "me: error loading profile", logger.User(userID), "error", err)
+			slog.ErrorContext(ctx, "me: error loading profile", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/message"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 	"github.com/google/uuid"
 )
 
@@ -42,6 +44,7 @@ func GetChannelMessages(channels ChannelByIDGetter, messages MessageGetter) http
 
 		ch, err := channels.GetByID(ctx, channelID)
 		if err != nil {
+			slog.ErrorContext(ctx, "messages: error finding channel", logger.Channel(channelID), "error", err)
 			http.Error(w, "error finding channel", http.StatusInternalServerError)
 			return
 		}
@@ -59,6 +62,7 @@ func GetChannelMessages(channels ChannelByIDGetter, messages MessageGetter) http
 
 		msgs, err := messages.GetByChannel(ctx, ch.ServerID, channelID, limit)
 		if err != nil {
+			slog.ErrorContext(ctx, "messages: error loading", logger.Channel(channelID), "error", err)
 			http.Error(w, "error loading messages", http.StatusInternalServerError)
 			return
 		}

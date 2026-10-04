@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 	"github.com/google/uuid"
 )
 
@@ -49,6 +51,7 @@ func GetByServer(channels ChannelGetter) http.HandlerFunc {
 		// list, err := channels.GetByServer(ctx, channelID)
 		list, err := channels.GetChannelByServer(ctx, channelID)
 		if err != nil {
+			slog.ErrorContext(ctx, "channels: error listing", logger.Server(channelID), "error", err)
 			http.Error(w, "Error finding channel", http.StatusInternalServerError)
 			return
 		}
@@ -85,6 +88,7 @@ func GetChannelByID(channels ChannelByIDGetter, voice VoiceMemberLister) http.Ha
 
 		ch, err := channels.GetByID(ctx, channelID)
 		if err != nil {
+			slog.ErrorContext(ctx, "channel: error finding", logger.Channel(channelID), "error", err)
 			http.Error(w, "error finding channel", http.StatusInternalServerError)
 			return
 		}

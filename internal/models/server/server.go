@@ -1,10 +1,12 @@
 package server
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	user "github.com/armonic-tech/armonic-backend/internal/models/user"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 )
 
 type Server struct {
@@ -49,6 +51,21 @@ func (s *Server) ConnectedUserIDs() []string {
 	return ids
 }
 
+func (s *Server) Counts() (connected, voice int) {
+	s.mu.RLock()
+	connected = len(s.ConnectedUsers)
+	vcs := make([]*channel.VoiceChannel, 0, len(s.VoiceChannels))
+	for _, vc := range s.VoiceChannels {
+		vcs = append(vcs, vc)
+	}
+	s.mu.RUnlock()
+
+	for _, vc := range vcs {
+		voice += len(vc.Members())
+	}
+	return connected, voice
+}
+
 func (s *Server) BroadcastMessage(senderID string, msg any) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -56,7 +73,9 @@ func (s *Server) BroadcastMessage(senderID string, msg any) {
 		if id == senderID {
 			continue
 		}
-		u.Signaling.SendJSON(msg)
+		if err := u.Signaling.SendJSON(msg); err != nil {
+			slog.Debug("broadcast: send failed", logger.Server(s.ID), logger.User(id), "error", err)
+		}
 	}
 }
 

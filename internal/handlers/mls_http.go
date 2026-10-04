@@ -88,10 +88,11 @@ func (m *MLS) RegisterDevice() http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "mls: error registering device", logger.User(userID), "error", err)
+			slog.ErrorContext(r.Context(), "mls: error registering device", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		slog.DebugContext(r.Context(), "mls: device registered", "device_id", req.DeviceID)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -130,17 +131,18 @@ func (m *MLS) PublishKeyPackages() http.HandlerFunc {
 			return
 		}
 		if err := m.store.AddKeyPackages(ctx, req.DeviceID, userID, req.KeyPackages); err != nil {
-			slog.ErrorContext(ctx, "mls: error saving key packages", logger.User(userID), "error", err)
+			slog.ErrorContext(ctx, "mls: error saving key packages", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		serverIDs, err := m.memberships.GetByUser(ctx, userID)
 		if err != nil {
-			slog.ErrorContext(ctx, "mls: error listing memberships", logger.User(userID), "error", err)
+			slog.ErrorContext(ctx, "mls: error listing memberships", "error", err)
 		}
 		for _, sid := range serverIDs {
 			m.presence.BroadcastToServer(sid, map[string]any{"type": "mls-sync", "serverId": sid})
 		}
+		slog.InfoContext(ctx, "mls: key packages published", "device_id", req.DeviceID, "count", len(req.KeyPackages), "servers_nudged", len(serverIDs))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -200,7 +202,7 @@ func (m *MLS) State() http.HandlerFunc {
 				return
 			}
 		}
-		slog.ErrorContext(ctx, "mls: error loading group state", logger.User(userID), logger.Server(serverID), "error", err)
+		slog.ErrorContext(ctx, "mls: error loading group state", logger.Server(serverID), "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
 }
@@ -301,18 +303,21 @@ func (m *MLS) Commit() http.HandlerFunc {
 		epoch, err := m.store.Commit(ctx, serverID, req)
 		switch {
 		case errors.Is(err, repo.ErrStaleEpoch):
+			slog.InfoContext(ctx, "mls: commit lost the epoch race", logger.Server(serverID), "device_id", req.DeviceID, "epoch", req.Epoch)
 			http.Error(w, "stale epoch", http.StatusConflict)
 			return
 		case errors.Is(err, repo.ErrNotInGroup), errors.Is(err, repo.ErrInvalidAdd),
 			errors.Is(err, repo.ErrInvalidRemove), errors.Is(err, repo.ErrMissingWelcome):
+			slog.WarnContext(ctx, "mls: commit refused", logger.Server(serverID), "device_id", req.DeviceID, "epoch", req.Epoch,
+				"adds", len(req.Adds), "removes", len(req.Removes), "welcomes", len(req.Welcomes), "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		case err != nil:
-			slog.ErrorContext(ctx, "mls: error applying commit", logger.User(userID), logger.Server(serverID), "error", err)
+			slog.ErrorContext(ctx, "mls: error applying commit", logger.Server(serverID), "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		slog.InfoContext(ctx, "mls commit applied", logger.User(userID), logger.Server(serverID),
+		slog.InfoContext(ctx, "mls commit applied", logger.Server(serverID), "device_id", req.DeviceID,
 			"epoch", epoch, "adds", len(req.Adds), "removes", len(req.Removes))
 		m.presence.BroadcastToServer(serverID, map[string]any{
 			"type":           "mls-commit",
@@ -352,7 +357,7 @@ func (m *MLS) AckWelcome() http.HandlerFunc {
 			return
 		}
 		if err := m.store.ConsumeWelcome(r.Context(), req.ID, req.DeviceID); err != nil {
-			slog.ErrorContext(r.Context(), "mls: error consuming welcome", logger.User(userID), "error", err)
+			slog.ErrorContext(r.Context(), "mls: error consuming welcome", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -367,11 +372,12 @@ func (m *MLS) ownsDevice(w http.ResponseWriter, r *http.Request, userID, deviceI
 	}
 	dev, err := m.store.GetDevice(r.Context(), deviceID)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "mls: error loading device", logger.User(userID), "error", err)
+		slog.ErrorContext(r.Context(), "mls: error loading device", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return false
 	}
 	if dev == nil || dev.UserID != userID {
+		slog.WarnContext(r.Context(), "mls: device not owned by caller", "device_id", deviceID, "registered", dev != nil)
 		http.Error(w, "unknown device", http.StatusForbidden)
 		return false
 	}

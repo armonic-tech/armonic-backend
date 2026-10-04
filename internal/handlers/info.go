@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/armonic-tech/armonic-backend/config"
@@ -41,6 +42,7 @@ func InfoHandler(cfg config.Config, members MemberCounter, serverID string, clai
 	return func(w http.ResponseWriter, r *http.Request) {
 		count, err := members.CountAll(r.Context())
 		if err != nil {
+			slog.ErrorContext(r.Context(), "info: error counting members", "error", err)
 			count = 0
 		}
 		w.Header().Set("Content-Type", "application/json")

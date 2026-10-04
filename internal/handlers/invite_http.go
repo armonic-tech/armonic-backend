@@ -56,13 +56,14 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 
 		token, err := invites.Create(ctx, serverID, userID, inviteTTL)
 		if err != nil {
-			slog.ErrorContext(ctx, "create-invite error", logger.User(userID), logger.Server(serverID), "error", err)
+			slog.ErrorContext(ctx, "create-invite error", logger.Server(serverID), "error", err)
 			http.Error(w, "error creating invite", http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		slog.InfoContext(ctx, "invite created", logger.Server(serverID))
 		json.NewEncoder(w).Encode(InviteCreatedResponse{
 			InviteToken: token,
 			URL:         fmt.Sprintf("%s?invite=%s", baseURL, token),
@@ -133,6 +134,7 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 			if err == authpkg.ErrUsernameTaken {
 				status = http.StatusConflict
 			}
+			slog.Log(r.Context(), levelFor(status), "invite-signup failed", "username", req.Username, logger.Server(inv.ServerID), "error", err)
 			http.Error(w, err.Error(), status)
 			return
 		}
@@ -153,7 +155,7 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 			slog.ErrorContext(r.Context(), "invite-signup error marking invite used", logger.User(claims.Sub), logger.Server(inv.ServerID), "error", err)
 		}
 
-		slog.InfoContext(r.Context(), "user joined via invite signup", logger.User(claims.Sub), logger.Server(inv.ServerID))
+		slog.InfoContext(r.Context(), "user joined via invite signup", logger.User(claims.Sub), logger.Server(inv.ServerID), "username", req.Username)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"token": token})

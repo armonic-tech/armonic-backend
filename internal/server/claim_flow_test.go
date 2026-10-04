@@ -104,10 +104,10 @@ func TestClaimAndInviteFlow(t *testing.T) {
 	}
 
 	repos := repo.InitRepositories(testDB)
-	srv, err := New(context.Background(), cfg, repos)
+	srv, err := New(context.Background(), cfg, testDB, repos)
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(srv.mux)
+	ts := httptest.NewServer(srv.handler)
 	defer ts.Close()
 	client := ts.Client()
 

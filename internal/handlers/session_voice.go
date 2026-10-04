@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
@@ -13,22 +14,30 @@ import (
 )
 
 func (s *connSession) handleJoinVoice(msg signal.Message) {
+	vctx := logger.With(s.ctx, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID))
+	if s.user.VoiceChannelID != "" {
+		slog.WarnContext(vctx, "join-voice while already in a voice channel", "previous_channel_id", s.user.VoiceChannelID)
+	}
+
 	rtcConn, err := rtc.NewWebRTCConn()
 	if err != nil {
-		slog.ErrorContext(s.ctx, "join-voice rtc error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(vctx, "join-voice rtc error", "error", err)
 		return
 	}
 	if err := rtcConn.AddAudioTransceiver(); err != nil {
-		slog.ErrorContext(s.ctx, "join-voice transceiver error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(vctx, "join-voice transceiver error", "error", err)
 		return
 	}
 
 	rtcConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		defer logger.Recover(vctx, "rtc OnICECandidate")
 		if candidate == nil {
+			slog.DebugContext(vctx, "voice: local ice gathering complete")
 			return
 		}
+		slog.DebugContext(vctx, "voice: local candidate", "type", candidate.Typ.String(), "protocol", candidate.Protocol.String())
 		c := candidate.ToJSON()
-		s.conn.SendJSON(signal.Message{Type: "candidate", Candidate: &c})
+		s.send(signal.Message{Type: "candidate", Candidate: &c})
 	})
 
 	u := &user.User{
@@ -45,11 +54,29 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
 	rtcConn.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		slog.DebugContext(s.ctx, "track received", logger.User(u.ID), "kind", track.Kind())
+		defer logger.Recover(vctx, "rtc OnTrack")
+		slog.InfoContext(vctx, "voice: track received", "kind", track.Kind().String(),
+			"codec", track.Codec().MimeType, "ssrc", uint32(track.SSRC()))
 		ch.ForwardTrack(u, track)
 	})
 
+	rtcConn.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		slog.DebugContext(vctx, "voice: ice connection state", "state", state.String())
+	})
+
+	joined := time.Now()
 	rtcConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		defer logger.Recover(vctx, "rtc OnConnectionStateChange")
+		level := slog.LevelInfo
+		if state == webrtc.PeerConnectionStateFailed {
+			level = slog.LevelWarn
+		}
+		args := []any{"state", state.String(), "since_join", time.Since(joined).Round(time.Millisecond).String()}
+		if state == webrtc.PeerConnectionStateConnected || state == webrtc.PeerConnectionStateFailed {
+			args = append(args, "selected_pair", rtcConn.SelectedCandidatePair())
+		}
+		slog.Log(vctx, level, "voice: peer connection state", args...)
+
 		switch state {
 		case webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed,
@@ -60,7 +87,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 					"userId":    u.ID,
 					"channelId": msg.ChannelID,
 				})
-				slog.InfoContext(s.ctx, "voice presence dropped on rtc state change", logger.User(u.ID), logger.Channel(msg.ChannelID), "state", state.String())
+				slog.InfoContext(vctx, "voice presence dropped on rtc state change", "state", state.String())
 			}
 			rtcConn.Close()
 		}
@@ -68,34 +95,36 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 
 	offer, err := rtcConn.CreateOffer()
 	if err != nil {
-		slog.ErrorContext(s.ctx, "join-voice offer error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(vctx, "join-voice offer error", "error", err)
 		return
 	}
 	if err := rtcConn.SetLocalDescription(offer); err != nil {
-		slog.ErrorContext(s.ctx, "join-voice set local description error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(vctx, "join-voice set local description error", "error", err)
 		return
 	}
 	if err := s.conn.SendJSON(signal.Message{Type: "offer", SDP: &offer}); err != nil {
-		slog.ErrorContext(s.ctx, "join-voice send offer error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(vctx, "join-voice send offer error", "error", err)
 		return
 	}
 
 	ch.AddUser(u)
 	s.user = u
-	slog.InfoContext(s.ctx, "user joined voice channel", logger.User(u.ID), logger.Server(msg.ServerID), logger.Channel(msg.ChannelID))
+	slog.InfoContext(vctx, "user joined voice channel", "offer", channel.SDPSummary(offer.SDP),
+		"muted", u.IsMuted(), "deafened", u.IsDeafened())
 }
 
 func (s *connSession) handleAnswer(msg signal.Message) {
 	if msg.SDP == nil || s.user.Media == nil {
-		slog.WarnContext(s.ctx, "voice: answer dropped", logger.User(s.user.ID),
+		slog.WarnContext(s.ctx, "voice: answer dropped",
 			"sdp_nil", msg.SDP == nil, "media_nil", s.user.Media == nil)
 		return
 	}
 	if err := s.user.Media.SetRemoteDescription(*msg.SDP); err != nil {
-		slog.ErrorContext(s.ctx, "handleAnswer error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(s.ctx, "handleAnswer error", logger.Channel(s.user.VoiceChannelID),
+			"answer", channel.SDPSummary(msg.SDP.SDP), "error", err)
 		return
 	}
-	slog.DebugContext(s.ctx, "voice: answer applied", logger.User(s.user.ID),
+	slog.DebugContext(s.ctx, "voice: answer applied", logger.Channel(s.user.VoiceChannelID),
 		"answer", channel.SDPSummary(msg.SDP.SDP))
 	if s.user.VoiceChannelID == "" {
 		return
@@ -103,21 +132,24 @@ func (s *connSession) handleAnswer(msg signal.Message) {
 	srv := s.h.app.GetOrCreateServer(s.user.ServerID)
 	ch := srv.GetOrCreateVoiceChannel(s.user.VoiceChannelID)
 
-	go ch.AttachPending(s.user)
+	u := s.user
+	logger.Go(s.ctx, "voice AttachPending", func() { ch.AttachPending(u) })
 }
 
 func (s *connSession) handleCandidate(msg signal.Message) {
 	if msg.Candidate == nil || s.user.Media == nil {
+		slog.DebugContext(s.ctx, "voice: candidate dropped", "candidate_nil", msg.Candidate == nil, "media_nil", s.user.Media == nil)
 		return
 	}
 	if err := s.user.Media.AddICECandidate(*msg.Candidate); err != nil {
-		slog.ErrorContext(s.ctx, "handleCandidate error", logger.User(s.user.ID), "error", err)
+		slog.ErrorContext(s.ctx, "handleCandidate error", logger.Channel(s.user.VoiceChannelID), "candidate", msg.Candidate.Candidate, "error", err)
 	}
 }
 
 func (s *connSession) handleVoiceState(msg signal.Message) {
 	muted, deafened := s.user.SetVoiceState(msg.Muted, msg.Deafened)
 	if s.user.VoiceChannelID == "" {
+		slog.DebugContext(s.ctx, "voice state stored outside a voice channel", "muted", muted, "deafened", deafened)
 		return
 	}
 	srv := s.h.app.GetOrCreateServer(s.user.ServerID)
@@ -129,35 +161,35 @@ func (s *connSession) handleVoiceState(msg signal.Message) {
 		"muted":     muted,
 		"deafened":  deafened,
 	})
-	slog.InfoContext(s.ctx, "voice state updated", logger.User(s.user.ID), logger.Channel(s.user.VoiceChannelID), "muted", muted, "deafened", deafened)
+	slog.InfoContext(s.ctx, "voice state updated", logger.Channel(s.user.VoiceChannelID), "muted", muted, "deafened", deafened)
 }
 
 func (s *connSession) handleKickVoice(msg signal.Message) {
 	ok, err := s.h.serverRepo.IsOwner(s.ctx, msg.ServerID, s.user.ID)
 	if err != nil || !ok {
-		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
+		s.reject(msg.Type, "unauthorized", err, logger.Server(msg.ServerID), "target_user_id", msg.TargetUserID)
 		return
 	}
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
-	ch.KickUser(msg.TargetUserID)
-	slog.InfoContext(s.ctx, "user kicked from voice", logger.User(msg.TargetUserID), logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "by", s.user.ID)
+	kicked := ch.KickUser(msg.TargetUserID)
+	slog.InfoContext(s.ctx, "user kicked from voice", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "was_present", kicked)
 }
 
 func (s *connSession) handleKickServer(msg signal.Message) {
 	ok, err := s.h.serverRepo.IsOwner(s.ctx, msg.ServerID, s.user.ID)
 	if err != nil || !ok {
-		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
+		s.reject(msg.Type, "unauthorized", err, logger.Server(msg.ServerID), "target_user_id", msg.TargetUserID)
 		return
 	}
 	if err := s.h.membershipRepo.Remove(s.ctx, msg.TargetUserID, msg.ServerID); err != nil {
-		slog.ErrorContext(s.ctx, "kick-server remove membership error", logger.User(msg.TargetUserID), logger.Server(msg.ServerID), "error", err)
+		slog.ErrorContext(s.ctx, "kick-server remove membership error", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID), "error", err)
 		return
 	}
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
 	srv.KickUserFromAllVoice(msg.TargetUserID)
-	slog.InfoContext(s.ctx, "user kicked from server", logger.User(msg.TargetUserID), logger.Server(msg.ServerID), "by", s.user.ID)
-	s.conn.SendJSON(map[string]any{"type": "user-kicked", "targetUserId": msg.TargetUserID})
+	slog.InfoContext(s.ctx, "user kicked from server", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID))
+	s.send(map[string]any{"type": "user-kicked", "targetUserId": msg.TargetUserID})
 	srv.BroadcastMessage("", map[string]any{"type": "mls-sync", "serverId": msg.ServerID})
 }
 
@@ -180,15 +212,18 @@ func (s *connSession) leaveVoice() {
 			"channelId": channelID,
 		})
 	}
+	slog.InfoContext(s.ctx, "user left voice", logger.Channel(channelID), "was_present", removed)
 }
 
 func (s *connSession) handleLeaveVoice() {
+	if s.user.VoiceChannelID == "" {
+		slog.DebugContext(s.ctx, "leave-voice outside a voice channel")
+	}
 	s.leaveVoice()
-	slog.InfoContext(s.ctx, "user left voice", logger.User(s.user.ID))
 }
 
 func (s *connSession) handleDisconnect() {
 	s.leaveVoice()
 	s.h.app.RemoveConnectedUser(s.user.ID)
-	slog.InfoContext(s.ctx, "user disconnected", logger.User(s.user.ID))
+	slog.InfoContext(s.ctx, "user disconnected")
 }

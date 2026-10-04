@@ -133,7 +133,7 @@ func (u *Uploads) Avatar(users AvatarStore, serverID string) http.HandlerFunc {
 			return
 		}
 		if err := users.SetAvatar(r.Context(), userID, att.ID); err != nil {
-			slog.ErrorContext(r.Context(), "avatar: error saving", logger.User(userID), "error", err)
+			slog.ErrorContext(r.Context(), "avatar: error saving", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -155,6 +155,7 @@ func (u *Uploads) Serve(variant string) http.HandlerFunc {
 		ctx := r.Context()
 		att, err := u.repo.GetByID(ctx, r.PathValue("id"))
 		if err != nil {
+			slog.ErrorContext(ctx, "attachment: error loading row", "attachment_id", r.PathValue("id"), "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -173,12 +174,12 @@ func (u *Uploads) Serve(variant string) http.HandlerFunc {
 		}
 		body, modTime, err := u.store.Open(att.Hash, variant)
 		if errors.Is(err, media.ErrNotFound) {
-			slog.ErrorContext(ctx, "attachment row without a blob", "attachmentId", att.ID, "hash", att.Hash)
+			slog.ErrorContext(ctx, "attachment row without a blob", "attachment_id", att.ID, "hash", att.Hash, "variant", variant)
 			http.Error(w, "attachment not found", http.StatusNotFound)
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(ctx, "attachment: error opening blob", "attachmentId", att.ID, "error", err)
+			slog.ErrorContext(ctx, "attachment: error opening blob", "attachment_id", att.ID, "variant", variant, "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -207,22 +208,30 @@ func (u *Uploads) ingest(w http.ResponseWriter, r *http.Request, serverID, userI
 	r.Body = http.MaxBytesReader(w, r.Body, u.maxBytes+multipartSlack)
 	part, err := imagePart(r)
 	if err != nil {
+		slog.WarnContext(ctx, "upload: no usable image part", "error", err)
 		writeUploadError(w, err)
 		return nil, false
 	}
 	defer part.Close()
 
+	waitStart := time.Now()
 	release, err := u.acquire(ctx)
 	if err != nil {
+		slog.WarnContext(ctx, "upload: gave up waiting for a decode slot", "waited", time.Since(waitStart).String(), "error", err)
 		http.Error(w, "server busy", http.StatusServiceUnavailable)
 		return nil, false
 	}
+	processStart := time.Now()
 	img, err := media.Process(part, u.limits)
 	release()
 	if err != nil {
+		slog.WarnContext(ctx, "upload: image rejected", logger.Server(serverID), "error", err,
+			"process_ms", time.Since(processStart).Milliseconds())
 		writeUploadError(w, err)
 		return nil, false
 	}
+	slog.DebugContext(ctx, "upload: image processed", "format", img.Format, "width", img.Width, "height", img.Height,
+		"bytes", len(img.Data), "wait_ms", processStart.Sub(waitStart).Milliseconds(), "process_ms", time.Since(processStart).Milliseconds())
 
 	if !u.withinQuota(w, r, userID, int64(len(img.Data)+len(img.Thumb))) {
 		return nil, false
@@ -230,12 +239,12 @@ func (u *Uploads) ingest(w http.ResponseWriter, r *http.Request, serverID, userI
 
 	hash := media.Hash(img.Data)
 	if err := u.store.Put(hash, media.VariantFull, img.Data); err != nil {
-		slog.ErrorContext(ctx, "upload: error storing blob", logger.User(userID), "error", err)
+		slog.ErrorContext(ctx, "upload: error storing blob", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return nil, false
 	}
 	if err := u.store.Put(hash, media.VariantThumb, img.Thumb); err != nil {
-		slog.ErrorContext(ctx, "upload: error storing thumbnail", logger.User(userID), "error", err)
+		slog.ErrorContext(ctx, "upload: error storing thumbnail", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return nil, false
 	}
@@ -255,12 +264,12 @@ func (u *Uploads) ingest(w http.ResponseWriter, r *http.Request, serverID, userI
 		CreatedAt:   time.Now().UTC(),
 	}
 	if err := u.repo.Create(ctx, att); err != nil {
-		slog.ErrorContext(ctx, "upload: error saving attachment", logger.User(userID), logger.Server(serverID), "error", err)
+		slog.ErrorContext(ctx, "upload: error saving attachment", logger.Server(serverID), "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return nil, false
 	}
 
-	slog.InfoContext(ctx, "attachment uploaded", logger.User(userID), logger.Server(serverID),
+	slog.InfoContext(ctx, "attachment uploaded", logger.Server(serverID),
 		"attachmentId", att.ID, "format", att.Format, "size", att.Size, "width", att.Width, "height", att.Height)
 	return att.WithURLs(), true
 }
@@ -300,6 +309,7 @@ func (u *Uploads) UploadEncrypted() http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, 2*u.maxBytes+multipartSlack)
 		full, thumb, err := encryptedParts(r, u.maxBytes)
 		if err != nil {
+			slog.WarnContext(ctx, "upload: encrypted parts rejected", logger.Server(serverID), "error", err)
 			writeUploadError(w, err)
 			return
 		}
@@ -312,12 +322,12 @@ func (u *Uploads) UploadEncrypted() http.HandlerFunc {
 
 		hash := media.Hash(full)
 		if err := u.store.Put(hash, media.VariantFull, full); err != nil {
-			slog.ErrorContext(ctx, "upload: error storing encrypted blob", logger.User(userID), "error", err)
+			slog.ErrorContext(ctx, "upload: error storing encrypted blob", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if err := u.store.Put(hash, media.VariantThumb, thumb); err != nil {
-			slog.ErrorContext(ctx, "upload: error storing encrypted thumbnail", logger.User(userID), "error", err)
+			slog.ErrorContext(ctx, "upload: error storing encrypted thumbnail", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -336,11 +346,11 @@ func (u *Uploads) UploadEncrypted() http.HandlerFunc {
 			CreatedAt:   time.Now().UTC(),
 		}
 		if err := u.repo.Create(ctx, att); err != nil {
-			slog.ErrorContext(ctx, "upload: error saving encrypted attachment", logger.User(userID), logger.Server(serverID), "error", err)
+			slog.ErrorContext(ctx, "upload: error saving encrypted attachment", logger.Server(serverID), "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		slog.InfoContext(ctx, "encrypted attachment uploaded", logger.User(userID), logger.Server(serverID),
+		slog.InfoContext(ctx, "encrypted attachment uploaded", logger.Server(serverID),
 			"attachmentId", att.ID, "size", att.Size, "thumbSize", att.ThumbSize)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -370,7 +380,7 @@ func (u *Uploads) Storage() http.HandlerFunc {
 		}
 		used, err := u.repo.StorageUsed(r.Context(), userID)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "storage: error reading usage", logger.User(userID), "error", err)
+			slog.ErrorContext(r.Context(), "storage: error reading usage", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -390,11 +400,12 @@ func (u *Uploads) withinQuota(w http.ResponseWriter, r *http.Request, userID str
 	}
 	used, err := u.repo.StorageUsed(r.Context(), userID)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "upload: error reading storage usage", logger.User(userID), "error", err)
+		slog.ErrorContext(r.Context(), "upload: error reading storage usage", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return false
 	}
 	if used+incoming > u.quota {
+		slog.WarnContext(r.Context(), "upload: storage quota exceeded", "used", used, "incoming", incoming, "quota", u.quota)
 		http.Error(w, ErrQuotaExceeded.Error(), http.StatusInsufficientStorage)
 		return false
 	}

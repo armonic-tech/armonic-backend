@@ -4,12 +4,16 @@
 // consistent field names (user_id, server_id, channel_id) let that person
 // grep/jq their way to "what did user X do" without adding any
 // infrastructure, and slot straight into one if they do have a collector.
+//
+// Rationale for the context attributes, panic recovery and crash file lives
+// in docs/ai/logging.md.
 package logger
 
 import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strings"
 )
 
@@ -28,24 +32,50 @@ import (
 // file can't be opened (bad path, permissions, read-only filesystem),
 // logging falls back to stdout only — a broken log file must never take
 // down the server.
+//
+// With a log file, fatal runtime errors and unrecovered panics are also
+// appended to logFile+".crash" (they bypass slog entirely, see
+// docs/ai/logging.md).
 func Init(levelStr, logFile string) {
 	writer := io.Writer(os.Stdout)
+	var fileErr error
 
 	if logFile != "" {
 		f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-				Level: parseLevel(levelStr),
-			})))
-			slog.Warn("could not open log file, logging to stdout only", "path", logFile, "error", err)
-			return
+			fileErr = err
+		} else {
+			writer = io.MultiWriter(os.Stdout, f)
 		}
-		writer = io.MultiWriter(os.Stdout, f)
 	}
 
-	slog.SetDefault(slog.New(slog.NewJSONHandler(writer, &slog.HandlerOptions{
-		Level: parseLevel(levelStr),
-	})))
+	slog.SetDefault(slog.New(NewHandler(writer, parseLevel(levelStr))))
+
+	if fileErr != nil {
+		slog.Warn("could not open log file, logging to stdout only", "path", logFile, "error", fileErr)
+		return
+	}
+	if logFile != "" {
+		setCrashOutput(logFile + ".crash")
+	}
+}
+
+// NewHandler is the JSON handler Init installs, with attributes stored by
+// With added to every record.
+func NewHandler(w io.Writer, level slog.Level) slog.Handler {
+	return contextHandler{slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level})}
+}
+
+func setCrashOutput(path string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Warn("could not open crash file, fatal errors go to stderr only", "path", path, "error", err)
+		return
+	}
+	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
+		slog.Warn("could not set crash output", "path", path, "error", err)
+	}
+	f.Close()
 }
 
 func parseLevel(s string) slog.Level {

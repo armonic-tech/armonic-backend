@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/armonic-tech/armonic-backend/config"
 	"github.com/armonic-tech/armonic-backend/internal/auth"
@@ -15,6 +18,7 @@ import (
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
 	"github.com/armonic-tech/armonic-backend/internal/models/user"
 	"github.com/armonic-tech/armonic-backend/internal/transport/ws"
+	"github.com/armonic-tech/armonic-backend/pkg/logger"
 
 	"github.com/gorilla/websocket"
 )
@@ -26,10 +30,16 @@ func newUpgrader(allowedOrigins []string) websocket.Upgrader {
 			if origin == "" || len(allowedOrigins) == 0 {
 				return true
 			}
-			return slices.Contains(allowedOrigins, origin)
+			if slices.Contains(allowedOrigins, origin) {
+				return true
+			}
+			slog.WarnContext(r.Context(), "ws: origin rejected", "origin", origin)
+			return false
 		},
 	}
 }
+
+const slowFrame = time.Second
 
 type MessageRepo interface {
 	Save(ctx context.Context, msg message.Message) error
@@ -114,38 +124,61 @@ type connSession struct {
 func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "ws upgrade error", "error", err)
+		slog.WarnContext(r.Context(), "ws upgrade error", "error", err)
 		return
 	}
 
 	wsConn := ws.NewWSConn(conn)
 	defer wsConn.Close()
 
-	s := &connSession{h: h, conn: wsConn, ctx: r.Context()}
+	ctx := logger.With(r.Context(), "conn_id", newConnID())
+	s := &connSession{h: h, conn: wsConn, ctx: ctx}
+	started := time.Now()
+	frames := 0
+	reason := "closed"
+
+	slog.InfoContext(ctx, "ws: connected", "remote_addr", r.RemoteAddr, "origin", r.Header.Get("Origin"), "user_agent", r.UserAgent())
+
+	defer func() {
+		if v := recover(); v != nil {
+			logger.LogPanic(s.ctx, "ws session", v)
+			reason = "panic"
+			if s.user != nil {
+				s.handleDisconnect()
+			}
+		}
+		slog.InfoContext(s.ctx, "ws: closed", "reason", reason, "authenticated", s.user != nil,
+			"frames", frames, "duration", time.Since(started).Round(time.Millisecond).String())
+	}()
 
 	for {
 		var msg signal.Message
 		if err := s.conn.ReadJSON(&msg); err != nil {
+			reason = err.Error()
 			if !websocket.IsCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure,
 			) {
-				slog.ErrorContext(s.ctx, "ws read error", "error", err)
+				slog.WarnContext(s.ctx, "ws read error", "error", err)
 			}
 			if s.user != nil {
 				s.handleDisconnect()
 			}
 			break
 		}
+		frames++
 
 		slog.DebugContext(s.ctx, "ws: frame", "type", msg.Type)
 
 		if s.user == nil && msg.Type != "auth" {
-			s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
+			slog.WarnContext(s.ctx, "ws: frame before auth", "type", msg.Type)
+			s.send(map[string]any{"type": "error", "message": "unauthorized"})
+			reason = "unauthenticated frame"
 			break
 		}
 
+		start := time.Now()
 		switch msg.Type {
 		case "auth":
 			if err := s.handleAuth(msg); err != nil {
@@ -176,6 +209,35 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleKickVoice(msg)
 		case "kick-server":
 			s.handleKickServer(msg)
+		default:
+			slog.WarnContext(s.ctx, "ws: unknown frame type ignored", "type", msg.Type)
+		}
+		if d := time.Since(start); d > slowFrame {
+			slog.WarnContext(s.ctx, "ws: slow frame", "type", msg.Type, "duration", d.Round(time.Millisecond).String())
 		}
 	}
+}
+
+func (s *connSession) send(v any) {
+	if err := s.conn.SendJSON(v); err != nil {
+		slog.WarnContext(s.ctx, "ws: send failed", "error", err)
+	}
+}
+
+// reject answers a frame with an error and logs why: Warn for a refusal,
+// Error when err says something actually broke.
+func (s *connSession) reject(frame, clientMsg string, err error, args ...any) {
+	level := slog.LevelWarn
+	if err != nil {
+		level = slog.LevelError
+		args = append(args, "error", err)
+	}
+	slog.Log(s.ctx, level, "ws: "+frame+" rejected", append([]any{"reason", clientMsg}, args...)...)
+	s.send(map[string]any{"type": "error", "message": clientMsg})
+}
+
+func newConnID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }

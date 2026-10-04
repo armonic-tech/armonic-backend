@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -57,15 +58,18 @@ func LoginHandler(svc AuthService, claimed func() bool, perAccount *ratelimit.Li
 		}
 
 		if !perAccount.Allow(strings.ToLower(strings.TrimSpace(req.Username))) {
+			slog.WarnContext(r.Context(), "login: per-account rate limit hit", "username", req.Username)
 			ratelimit.Reject(w, perAccount)
 			return
 		}
 
 		token, err := svc.Login(r.Context(), req.Username, req.Password)
 		if err != nil {
+			slog.WarnContext(r.Context(), "login failed", "username", req.Username, "error", err)
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
+		slog.InfoContext(r.Context(), "login succeeded", "username", req.Username)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(LoginResponse{Token: token})

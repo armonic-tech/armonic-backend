@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -22,8 +23,9 @@ type VoiceChannel struct {
 }
 
 type publication struct {
-	sender *user.User
-	track  *webrtc.TrackRemote
+	sender    *user.User
+	track     *webrtc.TrackRemote
+	channelID string
 
 	mu      sync.Mutex
 	outs    atomic.Pointer[[]*outbound]
@@ -178,20 +180,23 @@ func (vc *VoiceChannel) RemoveUserIf(userID string, u *user.User) bool {
 	return true
 }
 
-func (vc *VoiceChannel) KickUser(userID string) {
+func (vc *VoiceChannel) KickUser(userID string) bool {
 	vc.mu.RLock()
 	u, exists := vc.Users[userID]
 	vc.mu.RUnlock()
 	if !exists {
-		return
+		return false
 	}
 
 	vc.RemoveUser(userID)
-	u.Signaling.SendJSON(map[string]any{"type": "kicked-voice"})
+	if err := u.Signaling.SendJSON(map[string]any{"type": "kicked-voice"}); err != nil {
+		slog.Debug("voice: kicked-voice send failed", logger.User(userID), logger.Channel(vc.ID), "error", err)
+	}
 	u.Media.Close()
+	return true
 }
 
-func (vc *VoiceChannel) CloseAll() {
+func (vc *VoiceChannel) CloseAll() int {
 	vc.mu.Lock()
 	members := make([]*user.User, 0, len(vc.Users))
 	for _, u := range vc.Users {
@@ -206,6 +211,7 @@ func (vc *VoiceChannel) CloseAll() {
 			u.Media.Close()
 		}
 	}
+	return len(members)
 }
 
 func (vc *VoiceChannel) Broadcast(senderID string, msg any) {
@@ -219,12 +225,14 @@ func (vc *VoiceChannel) Broadcast(senderID string, msg any) {
 	vc.mu.RUnlock()
 
 	for _, s := range targets {
-		s.SendJSON(msg)
+		if err := s.SendJSON(msg); err != nil {
+			slog.Debug("voice: broadcast send failed", logger.Channel(vc.ID), "error", err)
+		}
 	}
 }
 
 func (vc *VoiceChannel) ForwardTrack(sender *user.User, track *webrtc.TrackRemote) {
-	pub := &publication{sender: sender, track: track}
+	pub := &publication{sender: sender, track: track, channelID: vc.ID}
 
 	vc.mu.Lock()
 	vc.pubs[sender.ID] = pub
@@ -236,11 +244,15 @@ func (vc *VoiceChannel) ForwardTrack(sender *user.User, track *webrtc.TrackRemot
 	}
 	vc.mu.Unlock()
 
+	slog.Info("voice: publication started", logger.User(sender.ID), logger.Channel(vc.ID), "listeners", len(listeners))
 	for _, u := range listeners {
 		attach(pub, u)
 	}
 
-	go pub.pump()
+	go func() {
+		defer logger.Recover(context.Background(), "voice pump")
+		pub.pump()
+	}()
 }
 
 func attach(pub *publication, receiver *user.User) {
@@ -258,28 +270,30 @@ func attach(pub *publication, receiver *user.User) {
 		pub.track.StreamID(),
 	)
 	if err != nil {
-		slog.Error("voice: creating local track", logger.User(receiver.ID), "error", err)
+		slog.Error("voice: creating local track", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
 		return
 	}
 
 	rtpSender, err := receiver.Media.AddTrack(localTrack)
 	if err != nil {
-		slog.Error("voice: adding track", logger.User(receiver.ID), "error", err)
+		slog.Error("voice: adding track", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
 		return
 	}
 
 	offer, err := receiver.Media.CreateOffer()
 	if err != nil {
-		slog.Error("voice: renegotiation offer", logger.User(receiver.ID), "error", err)
+		slog.Error("voice: renegotiation offer", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
 		return
 	}
 	if err := receiver.Media.SetLocalDescription(offer); err != nil {
-		slog.Error("voice: renegotiation local description", logger.User(receiver.ID), "error", err)
+		slog.Error("voice: renegotiation local description", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
 		return
 	}
 
 	out := &outbound{receiver: receiver, track: localTrack}
 	if !pub.add(out) {
+		slog.Debug("voice: attach skipped, publication closed or listener present",
+			"from", pub.sender.ID, "to", receiver.ID, logger.Channel(pub.channelID))
 		return
 	}
 
@@ -287,15 +301,16 @@ func attach(pub *publication, receiver *user.User) {
 		"type": "offer",
 		"sdp":  offer,
 	}); err != nil {
-		slog.Error("voice: sending renegotiation offer", logger.User(receiver.ID), "error", err)
+		slog.Error("voice: sending renegotiation offer", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
 	}
 
 	slog.Info("voice: track attached",
-		"from", pub.sender.ID, "to", receiver.ID, "channel", pub.track.StreamID(),
+		"from", pub.sender.ID, "to", receiver.ID, logger.Channel(pub.channelID), "stream", pub.track.StreamID(),
 		"offer", SDPSummary(offer.SDP))
 
 	if rtpSender != nil {
 		go func() {
+			defer logger.Recover(context.Background(), "voice rtcp reader")
 			buf := make([]byte, 1500)
 			for {
 				if _, _, err := rtpSender.Read(buf); err != nil {
@@ -351,7 +366,7 @@ func (p *publication) pump() {
 	for {
 		n, _, err := p.track.Read(buf)
 		if err != nil {
-			slog.Info("voice: publication ended", logger.User(p.sender.ID),
+			slog.Info("voice: publication ended", logger.User(p.sender.ID), logger.Channel(p.channelID),
 				"read", p.read.Load(), "written", p.written.Load(),
 				"listeners", p.listenerReport(), "error", err)
 			return
@@ -374,7 +389,7 @@ func (p *publication) pump() {
 			if _, err := out.track.Write(buf[:n]); err != nil {
 				if !p.logged.Swap(true) {
 					slog.Error("voice: writing to listener",
-						logger.User(out.receiver.ID), "error", err)
+						logger.User(out.receiver.ID), "from", p.sender.ID, logger.Channel(p.channelID), "error", err)
 				}
 				continue
 			}
@@ -382,7 +397,7 @@ func (p *publication) pump() {
 		}
 
 		if r := p.read.Load(); r%500 == 0 {
-			slog.Debug("voice: relay progress", logger.User(p.sender.ID),
+			slog.Debug("voice: relay progress", logger.User(p.sender.ID), logger.Channel(p.channelID),
 				"read", r, "written", p.written.Load(),
 				"listeners", p.listenerReport(), "muted", p.sender.IsMuted())
 		}

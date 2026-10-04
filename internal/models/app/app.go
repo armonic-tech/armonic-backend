@@ -57,6 +57,24 @@ func (a *App) ConnectedUserIDs(serverID string) []string {
 	return srv.ConnectedUserIDs()
 }
 
+// Stats counts live state for the runtime heartbeat. Each layer is locked on
+// its own, so the numbers are a near-snapshot, not an atomic one.
+func (a *App) Stats() (servers, connected, voice int) {
+	a.mu.RLock()
+	list := make([]*server.Server, 0, len(a.Servers))
+	for _, s := range a.Servers {
+		list = append(list, s)
+	}
+	a.mu.RUnlock()
+
+	for _, s := range list {
+		c, v := s.Counts()
+		connected += c
+		voice += v
+	}
+	return len(list), connected, voice
+}
+
 func (a *App) RemoveConnectedUser(userID string) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

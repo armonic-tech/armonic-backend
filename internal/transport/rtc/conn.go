@@ -2,6 +2,7 @@ package rtc
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v3"
@@ -68,6 +69,9 @@ func (w *WebRTCConn) SetRemoteDescription(sdp webrtc.SessionDescription) error {
 			errs = append(errs, err)
 		}
 	}
+	if len(pending) > 0 {
+		slog.Debug("rtc: drained buffered candidates", "count", len(pending), "failed", len(errs))
+	}
 	return errors.Join(errs...)
 }
 
@@ -76,6 +80,8 @@ func (w *WebRTCConn) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 	if !w.remoteDescSet {
 		if len(w.pending) < maxPendingCandidates {
 			w.pending = append(w.pending, candidate)
+		} else {
+			slog.Warn("rtc: candidate buffer full, dropping candidate", "max", maxPendingCandidates)
 		}
 		w.mu.Unlock()
 		return nil
@@ -100,4 +106,23 @@ func (w *WebRTCConn) OnTrack(f func(*webrtc.TrackRemote, *webrtc.RTPReceiver)) {
 
 func (w *WebRTCConn) OnConnectionStateChange(f func(webrtc.PeerConnectionState)) {
 	w.pc.OnConnectionStateChange(f)
+}
+
+func (w *WebRTCConn) OnICEConnectionStateChange(f func(webrtc.ICEConnectionState)) {
+	w.pc.OnICEConnectionStateChange(f)
+}
+
+// SelectedCandidatePair describes the nominated ICE pair, for logs. A remote
+// side that is prflx with no address is the "sending from an address we never
+// advertised" signature in docs/ai/ws-protocol.md.
+func (w *WebRTCConn) SelectedCandidatePair() string {
+	sctp := w.pc.SCTP()
+	if sctp == nil || sctp.Transport() == nil || sctp.Transport().ICETransport() == nil {
+		return "none"
+	}
+	pair, err := sctp.Transport().ICETransport().GetSelectedCandidatePair()
+	if err != nil || pair == nil {
+		return "none"
+	}
+	return pair.String()
 }

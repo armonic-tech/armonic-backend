@@ -1,6 +1,10 @@
 package handlers
 
-import "context"
+import (
+	"context"
+	"log/slog"
+	"net/http"
+)
 
 // private type for context keys set by the HTTP auth middleware
 // they can't collide with keys set by other packages
@@ -18,4 +22,13 @@ func WithUserID(ctx context.Context, id string) context.Context {
 func UserID(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(userIDKey).(string)
 	return id, ok
+}
+
+// levelFor picks Error for a failure that is ours and Warn for one that is
+// the caller's, so a 4xx never pages anyone.
+func levelFor(status int) slog.Level {
+	if status >= http.StatusInternalServerError {
+		return slog.LevelError
+	}
+	return slog.LevelWarn
 }
