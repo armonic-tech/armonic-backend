@@ -5,6 +5,7 @@ import (
 
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	"github.com/armonic-tech/armonic-backend/internal/models/server"
+	"github.com/armonic-tech/armonic-backend/internal/models/user"
 )
 
 type App struct {
@@ -60,13 +61,7 @@ func (a *App) ConnectedUserIDs(serverID string) []string {
 // Stats counts live state for the runtime heartbeat. Each layer is locked on
 // its own, so the numbers are a near-snapshot, not an atomic one.
 func (a *App) Stats() (servers, connected, voice int) {
-	a.mu.RLock()
-	list := make([]*server.Server, 0, len(a.Servers))
-	for _, s := range a.Servers {
-		list = append(list, s)
-	}
-	a.mu.RUnlock()
-
+	list := a.servers()
 	for _, s := range list {
 		c, v := s.Counts()
 		connected += c
@@ -75,12 +70,22 @@ func (a *App) Stats() (servers, connected, voice int) {
 	return len(list), connected, voice
 }
 
-func (a *App) RemoveConnectedUser(userID string) {
+// RemoveConnection drops one of the user's sockets from every server; their
+// other devices stay connected.
+func (a *App) RemoveConnection(userID string, sock user.Socket) {
+	for _, s := range a.servers() {
+		s.RemoveConnection(userID, sock)
+	}
+}
+
+func (a *App) servers() []*server.Server {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	list := make([]*server.Server, 0, len(a.Servers))
 	for _, s := range a.Servers {
-		s.RemoveConnectedUser(userID)
+		list = append(list, s)
 	}
+	return list
 }
 
 // BroadcastToServer pushes a frame to every live socket attached to a
@@ -90,5 +95,5 @@ func (a *App) BroadcastToServer(serverID string, msg any) {
 	if srv == nil {
 		return
 	}
-	srv.BroadcastMessage("", msg)
+	srv.BroadcastMessage(nil, msg)
 }

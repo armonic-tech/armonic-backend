@@ -55,7 +55,7 @@ func (s *connSession) handleCreateChannel(msg signal.Message) {
 	}
 	slog.InfoContext(s.ctx, "channel created", logger.Server(ch.ServerID), logger.Channel(ch.ID), "type", ch.Type)
 
-	s.h.app.GetOrCreateServer(ch.ServerID).BroadcastMessage("", map[string]any{
+	s.h.app.GetOrCreateServer(ch.ServerID).BroadcastMessage(nil, map[string]any{
 		"type":    "channel-created",
 		"channel": ch,
 	})
@@ -98,7 +98,7 @@ func (s *connSession) handleDeleteChannel(msg signal.Message) {
 	}
 
 	slog.InfoContext(s.ctx, "channel deleted", logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "type", ch.Type, "voice_users_dropped", closed)
-	srv.BroadcastMessage("", map[string]any{
+	srv.BroadcastMessage(nil, map[string]any{
 		"type":      "channel-deleted",
 		"serverId":  msg.ServerID,
 		"channelId": msg.ChannelID,

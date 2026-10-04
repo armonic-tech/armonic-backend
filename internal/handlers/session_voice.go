@@ -188,9 +188,10 @@ func (s *connSession) handleKickServer(msg signal.Message) {
 	}
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
 	srv.KickUserFromAllVoice(msg.TargetUserID)
-	slog.InfoContext(s.ctx, "user kicked from server", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID))
+	conns := srv.RemoveUser(msg.TargetUserID)
+	slog.InfoContext(s.ctx, "user kicked from server", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID), "connections_dropped", conns)
 	s.send(map[string]any{"type": "user-kicked", "targetUserId": msg.TargetUserID})
-	srv.BroadcastMessage("", map[string]any{"type": "mls-sync", "serverId": msg.ServerID})
+	srv.BroadcastMessage(nil, map[string]any{"type": "mls-sync", "serverId": msg.ServerID})
 }
 
 func (s *connSession) leaveVoice() {
@@ -224,6 +225,6 @@ func (s *connSession) handleLeaveVoice() {
 
 func (s *connSession) handleDisconnect() {
 	s.leaveVoice()
-	s.h.app.RemoveConnectedUser(s.user.ID)
+	s.h.app.RemoveConnection(s.user.ID, s.conn)
 	slog.InfoContext(s.ctx, "user disconnected")
 }

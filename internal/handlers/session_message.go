@@ -67,7 +67,7 @@ func (s *connSession) handleTextMessage(msg signal.Message) {
 	if m.Encrypted {
 		broadcast["encrypted"] = true
 	}
-	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage(s.user.ID, broadcast)
+	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage(s.conn, broadcast)
 }
 
 // An MLS envelope wraps the text plus an attachment pointer, AEAD tag and
@@ -110,7 +110,7 @@ func (s *connSession) handleDeleteMessage(msg signal.Message) {
 	}
 	slog.InfoContext(s.ctx, "message deleted", logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)
 
-	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage("", map[string]any{
+	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage(nil, map[string]any{
 		"type":      "message-deleted",
 		"id":        msg.MessageID,
 		"serverId":  msg.ServerID,

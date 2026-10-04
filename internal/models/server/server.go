@@ -10,11 +10,14 @@ import (
 )
 
 type Server struct {
-	ID             string
-	OwnerID        string
-	TextChannels   map[string]*channel.TextChannel
-	VoiceChannels  map[string]*channel.VoiceChannel
-	ConnectedUsers map[string]*user.User
+	ID            string
+	OwnerID       string
+	TextChannels  map[string]*channel.TextChannel
+	VoiceChannels map[string]*channel.VoiceChannel
+	// userID → every live WebSocket of that user. Keyed by socket, not by
+	// *user.User: join-voice swaps the session's User for a new one, while the
+	// socket stays the same for the whole connection.
+	ConnectedUsers map[string]map[user.Socket]struct{}
 	mu             sync.RWMutex
 }
 
@@ -24,20 +27,42 @@ func NewServer(id string) *Server {
 		OwnerID:        "",
 		TextChannels:   make(map[string]*channel.TextChannel),
 		VoiceChannels:  make(map[string]*channel.VoiceChannel),
-		ConnectedUsers: make(map[string]*user.User),
+		ConnectedUsers: make(map[string]map[user.Socket]struct{}),
 	}
 }
 
 func (s *Server) AddConnectedUser(u *user.User) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ConnectedUsers[u.ID] = u
+	conns := s.ConnectedUsers[u.ID]
+	if conns == nil {
+		conns = make(map[user.Socket]struct{})
+		s.ConnectedUsers[u.ID] = conns
+	}
+	conns[u.Signaling] = struct{}{}
 }
 
-func (s *Server) RemoveConnectedUser(userID string) {
+// RemoveConnection drops one socket; the user stays online while any other
+// remains. Reports how many of the user's connections are left.
+func (s *Server) RemoveConnection(userID string, sock user.Socket) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	conns := s.ConnectedUsers[userID]
+	delete(conns, sock)
+	if len(conns) == 0 {
+		delete(s.ConnectedUsers, userID)
+	}
+	return len(conns)
+}
+
+// RemoveUser drops every connection of the user, e.g. on kick-server, so
+// they stop receiving the server's events at once.
+func (s *Server) RemoveUser(userID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.ConnectedUsers[userID])
 	delete(s.ConnectedUsers, userID)
+	return n
 }
 
 func (s *Server) ConnectedUserIDs() []string {
@@ -66,15 +91,27 @@ func (s *Server) Counts() (connected, voice int) {
 	return connected, voice
 }
 
-func (s *Server) BroadcastMessage(senderID string, msg any) {
+// BroadcastMessage sends msg to every connection except `except`, the one
+// the event came from (nil = everyone). Excluding a connection rather than a
+// user is what lets a user's other devices see what this one sent.
+func (s *Server) BroadcastMessage(except user.Socket, msg any) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for id, u := range s.ConnectedUsers {
-		if id == senderID {
-			continue
+	targets := make([]user.Socket, 0, len(s.ConnectedUsers))
+	ids := make([]string, 0, len(s.ConnectedUsers))
+	for id, conns := range s.ConnectedUsers {
+		for sock := range conns {
+			if except != nil && sock == except {
+				continue
+			}
+			targets = append(targets, sock)
+			ids = append(ids, id)
 		}
-		if err := u.Signaling.SendJSON(msg); err != nil {
-			slog.Debug("broadcast: send failed", logger.Server(s.ID), logger.User(id), "error", err)
+	}
+	s.mu.RUnlock()
+
+	for i, sock := range targets {
+		if err := sock.SendJSON(msg); err != nil {
+			slog.Debug("broadcast: send failed", logger.Server(s.ID), logger.User(ids[i]), "error", err)
 		}
 	}
 }
