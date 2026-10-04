@@ -68,6 +68,15 @@ func (r *ServerRepo) GetByIDs(ctx context.Context, ids []string) ([]server.Serve
 	return servers, rows.Err()
 }
 
+func (r *ServerRepo) OwnerID(ctx context.Context, serverID string) (string, error) {
+	var ownerID sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT owner_id FROM servers WHERE id = $1`, serverID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return ownerID.String, err
+}
+
 func (r *ServerRepo) SetOwner(ctx context.Context, serverID, ownerID string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE servers SET owner_id = $1 WHERE id = $2`,

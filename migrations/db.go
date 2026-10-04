@@ -71,7 +71,52 @@ func Migrate(db *sql.DB) error {
 			created_at   BIGINT NOT NULL
 		);
 		ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id TEXT;
+		ALTER TABLE messages ADD COLUMN IF NOT EXISTS encrypted BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_id TEXT;
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS encrypted BOOLEAN NOT NULL DEFAULT FALSE;
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS thumb_size BIGINT NOT NULL DEFAULT 0;
+
+		CREATE TABLE IF NOT EXISTS mls_devices (
+			id          TEXT PRIMARY KEY,
+			user_id     TEXT NOT NULL,
+			signing_key TEXT NOT NULL,
+			created_at  BIGINT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS mls_key_packages (
+			id          TEXT PRIMARY KEY,
+			device_id   TEXT NOT NULL,
+			user_id     TEXT NOT NULL,
+			payload     TEXT NOT NULL,
+			created_at  BIGINT NOT NULL,
+			consumed_at BIGINT
+		);
+		CREATE TABLE IF NOT EXISTS mls_groups (
+			server_id TEXT PRIMARY KEY,
+			epoch     BIGINT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS mls_members (
+			server_id TEXT NOT NULL,
+			device_id TEXT NOT NULL,
+			user_id   TEXT NOT NULL,
+			PRIMARY KEY (server_id, device_id)
+		);
+		CREATE TABLE IF NOT EXISTS mls_commits (
+			server_id        TEXT NOT NULL,
+			epoch            BIGINT NOT NULL,
+			sender_device_id TEXT NOT NULL,
+			payload          TEXT NOT NULL,
+			created_at       BIGINT NOT NULL,
+			PRIMARY KEY (server_id, epoch)
+		);
+		CREATE TABLE IF NOT EXISTS mls_welcomes (
+			id          TEXT PRIMARY KEY,
+			server_id   TEXT NOT NULL,
+			device_id   TEXT NOT NULL,
+			epoch       BIGINT NOT NULL,
+			payload     TEXT NOT NULL,
+			created_at  BIGINT NOT NULL,
+			consumed_at BIGINT
+		);
 
 		CREATE INDEX IF NOT EXISTS idx_messages_channel
 			ON messages(server_id, channel_id, created_at DESC);
@@ -86,6 +131,16 @@ func Migrate(db *sql.DB) error {
 			ON invites(expires_at);
 		CREATE INDEX IF NOT EXISTS idx_attachments_hash
 			ON attachments(hash);
+		CREATE INDEX IF NOT EXISTS idx_attachments_user
+			ON attachments(user_id);
+		CREATE INDEX IF NOT EXISTS idx_mls_devices_user
+			ON mls_devices(user_id);
+		CREATE INDEX IF NOT EXISTS idx_mls_key_packages_device
+			ON mls_key_packages(device_id) WHERE consumed_at IS NULL;
+		CREATE INDEX IF NOT EXISTS idx_mls_members_user
+			ON mls_members(server_id, user_id);
+		CREATE INDEX IF NOT EXISTS idx_mls_welcomes_device
+			ON mls_welcomes(server_id, device_id) WHERE consumed_at IS NULL;
 	`)
 	return err
 }

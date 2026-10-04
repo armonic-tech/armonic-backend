@@ -54,6 +54,17 @@ type fakeAttachments struct {
 	saved []attachment.Attachment
 	get   *attachment.Attachment
 	err   error
+	used  int64
+}
+
+func (f *fakeAttachments) StorageUsed(context.Context, string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	used := f.used
+	for _, a := range f.saved {
+		used += a.Size + a.ThumbSize
+	}
+	return used, f.err
 }
 
 func (f *fakeAttachments) Create(_ context.Context, a attachment.Attachment) error {

@@ -16,7 +16,7 @@ func (s *connSession) handleTextMessage(msg signal.Message) {
 		s.conn.SendJSON(map[string]any{"type": "error", "message": "unauthorized"})
 		return
 	}
-	if len(msg.Content) > s.h.cfg.MaxMsgLen || (len(msg.Content) == 0 && msg.AttachmentID == "") {
+	if len(msg.Content) > s.contentCap(msg.Encrypted) || (len(msg.Content) == 0 && msg.AttachmentID == "") {
 		s.conn.SendJSON(map[string]any{"type": "error", "message": "message content invalid"})
 		return
 	}
@@ -31,11 +31,22 @@ func (s *connSession) handleTextMessage(msg signal.Message) {
 		UserID:       s.user.ID,
 		Content:      msg.Content,
 		AttachmentID: msg.AttachmentID,
+		Encrypted:    msg.Encrypted,
 		CreatedAt:    time.Now(),
 	}
 	if err := s.h.messageRepo.Save(s.ctx, m); err != nil {
 		slog.ErrorContext(s.ctx, "error saving message", logger.User(s.user.ID), logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "error", err)
 		return
+	}
+	if msg.ClientMsgID != "" {
+		s.conn.SendJSON(map[string]any{
+			"type":        "message-ack",
+			"clientMsgId": msg.ClientMsgID,
+			"id":          m.ID,
+			"serverId":    m.ServerID,
+			"channelId":   m.ChannelID,
+			"createdAt":   m.CreatedAt,
+		})
 	}
 	broadcast := map[string]any{
 		"type":      "text-message",
@@ -49,7 +60,20 @@ func (s *connSession) handleTextMessage(msg signal.Message) {
 	if m.AttachmentID != "" {
 		broadcast["attachmentId"] = m.AttachmentID
 	}
+	if m.Encrypted {
+		broadcast["encrypted"] = true
+	}
 	s.h.app.GetOrCreateServer(msg.ServerID).BroadcastMessage(s.user.ID, broadcast)
+}
+
+// An MLS envelope wraps the text plus an attachment pointer, AEAD tag and
+// base64 — the plaintext limit still applies inside, this is only the
+// ciphertext ceiling (docs/ai/e2ee.md).
+func (s *connSession) contentCap(encrypted bool) int {
+	if encrypted {
+		return 2*s.h.cfg.MaxMsgLen + 1024
+	}
+	return s.h.cfg.MaxMsgLen
 }
 
 func (s *connSession) ownsAttachment(attachmentID, serverID string) bool {

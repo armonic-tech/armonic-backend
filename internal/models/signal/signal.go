@@ -19,6 +19,13 @@ type Message struct {
 	// text-message
 	Content string `json:"content,omitempty"`
 
+	// text-message: client-generated id echoed back in message-ack
+	ClientMsgID string `json:"clientMsgId,omitempty"`
+
+	// text-message: Content is an MLS application-message envelope, opaque to
+	// the server (docs/ai/e2ee.md)
+	Encrypted bool `json:"encrypted,omitempty"`
+
 	// delete-message
 	MessageID    string `json:"messageId,omitempty"`
 	AttachmentID string `json:"attachmentId,omitempty"`

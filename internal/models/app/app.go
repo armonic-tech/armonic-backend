@@ -64,3 +64,13 @@ func (a *App) RemoveConnectedUser(userID string) {
 		s.RemoveConnectedUser(userID)
 	}
 }
+
+// BroadcastToServer pushes a frame to every live socket attached to a
+// server; a no-op for a server nobody is connected to.
+func (a *App) BroadcastToServer(serverID string, msg any) {
+	srv := a.getServer(serverID)
+	if srv == nil {
+		return
+	}
+	srv.BroadcastMessage("", msg)
+}

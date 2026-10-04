@@ -11,8 +11,10 @@ type Attachment struct {
 	ThumbFormat string    `json:"-"`
 	MIME        string    `json:"mime"`
 	Size        int64     `json:"size"`
+	ThumbSize   int64     `json:"thumbSize,omitempty"`
 	Width       int       `json:"width"`
 	Height      int       `json:"height"`
+	Encrypted   bool      `json:"encrypted,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	URL         string    `json:"url"`
 	ThumbURL    string    `json:"thumbUrl"`

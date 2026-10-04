@@ -43,6 +43,7 @@ type UploadConfig struct {
 	RatePerMin     int
 	Burst          int
 	MaxConcurrent  int
+	MaxUserBytes   int64
 }
 
 type PowConfig struct {
@@ -101,6 +102,7 @@ func Load() (Config, error) {
 		RatePerMin:     getEnvInt("UPLOAD_RATE_PER_MIN", 20),
 		Burst:          getEnvInt("UPLOAD_BURST", 5),
 		MaxConcurrent:  getEnvInt("MAX_CONCURRENT_UPLOADS", 4),
+		MaxUserBytes:   getEnvInt64("MAX_USER_STORAGE_BYTES", 512*1024*1024),
 	}
 
 	cfg.Pow = PowConfig{

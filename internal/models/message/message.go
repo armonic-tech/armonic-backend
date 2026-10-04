@@ -9,5 +9,6 @@ type Message struct {
 	UserID       string    `json:"userId"`
 	Content      string    `json:"content"`
 	AttachmentID string    `json:"attachmentId,omitempty"`
+	Encrypted    bool      `json:"encrypted,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 }

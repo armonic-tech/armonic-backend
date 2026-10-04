@@ -329,6 +329,121 @@ const docTemplate = `{
                 }
             }
         },
+        "/me/mls/device": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Declares this install's device id and Ed25519 signing key. Idempotent for the same user; a device id owned by another account is rejected.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "Register an MLS device",
+                "parameters": [
+                    {
+                        "description": "Device",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.RegisterDeviceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "invalid device",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "device registered to another user",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/mls/keypackages": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds single-use key packages for one of the caller's devices. Every server the caller belongs to is nudged (` + "`" + `mls-sync` + "`" + `) so a committer can add the device.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "Publish key packages",
+                "parameters": [
+                    {
+                        "description": "Key packages",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.PublishKeyPackagesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "invalid key packages",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "device belongs to another user",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/storage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Bytes the caller's uploads occupy against the per-user quota.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Own storage usage",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.StorageResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/pow/challenge": {
             "get": {
                 "description": "Issues an Altcha-compatible challenge. Solve it and send the base64 solution in the \"altcha\" field of the login, claim or invite-signup request. Returns 404 when POW_ENABLED is off.",
@@ -524,6 +639,195 @@ const docTemplate = `{
                 }
             }
         },
+        "/server/{id}/mls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. The group's epoch and roster as the delivery service sees it, the devices waiting to be added or evicted, who is expected to commit, and — for the calling device — any pending welcome and how many key packages it has left.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "MLS group state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Calling device",
+                        "name": "deviceId",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.GroupStateResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "forbidden",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/server/{id}/mls/commit": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. Advances the group one epoch. Rejected with 409 when built against a stale epoch (fetch the missed commits and retry), 400 when it adds a device without an available key package or removes one not in the group. On success the commit is broadcast as ` + "`" + `mls-commit` + "`" + ` to every connected member.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "Post a commit",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Commit",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mls.CommitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CommitResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid commit",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "stale epoch",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/server/{id}/mls/commits": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. The commits a device missed, in epoch order, so an offline device can catch up.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "Commits after an epoch",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Last epoch the device applied",
+                        "name": "after",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/mls.Commit"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/server/{id}/mls/welcome/ack": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks a welcome as processed so the state endpoint stops returning it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLS"
+                ],
+                "summary": "Acknowledge a welcome",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Welcome",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ConsumeWelcomeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/server/{id}/upload": {
             "post": {
                 "security": [
@@ -597,6 +901,74 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/server/{id}/upload/encrypted": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Member-only. Multipart upload of an end-to-end encrypted image: \"file\" is the ciphertext of the sanitized image, \"thumb\" the ciphertext of its thumbnail (optional; the full blob doubles as the thumbnail when absent). The server stores both as opaque bytes — it cannot decode, validate or thumbnail them — applying only the byte cap, the per-user rate limit and the storage quota. The keys travel inside the MLS-encrypted message that references the attachment (docs/ai/e2ee.md).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Attachment"
+                ],
+                "summary": "Upload an encrypted attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Encrypted image",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Encrypted thumbnail",
+                        "name": "thumb",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/attachment.Attachment"
+                        }
+                    },
+                    "413": {
+                        "description": "file exceeds the maximum upload size",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "429": {
+                        "description": "rate limit exceeded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "507": {
+                        "description": "storage quota exceeded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -605,6 +977,9 @@ const docTemplate = `{
             "properties": {
                 "createdAt": {
                     "type": "string"
+                },
+                "encrypted": {
+                    "type": "boolean"
                 },
                 "height": {
                     "type": "integer"
@@ -619,6 +994,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "size": {
+                    "type": "integer"
+                },
+                "thumbSize": {
                     "type": "integer"
                 },
                 "thumbUrl": {
@@ -698,6 +1076,61 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.CommitResponse": {
+            "type": "object",
+            "properties": {
+                "epoch": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handlers.ConsumeWelcomeRequest": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.GroupStateResponse": {
+            "type": "object",
+            "properties": {
+                "coordinatorUserId": {
+                    "description": "The connected member expected to commit pending changes: the owner when\nonline, else the lowest connected user id. Anyone may still commit.",
+                    "type": "string"
+                },
+                "epoch": {
+                    "type": "integer"
+                },
+                "keyPackagesLeft": {
+                    "type": "integer"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mls.Member"
+                    }
+                },
+                "pendingAdds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mls.PendingAdd"
+                    }
+                },
+                "pendingRemoves": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mls.Member"
+                    }
+                },
+                "welcome": {
+                    "$ref": "#/definitions/mls.Welcome"
+                }
+            }
+        },
         "handlers.InviteCreatedResponse": {
             "type": "object",
             "properties": {
@@ -752,6 +1185,31 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.PublishKeyPackagesRequest": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "keyPackages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mls.KeyPackage"
+                    }
+                }
+            }
+        },
+        "handlers.RegisterDeviceRequest": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "signingKey": {
+                    "type": "string"
+                }
+            }
+        },
         "handlers.ServerResponse": {
             "type": "object",
             "properties": {
@@ -781,6 +1239,17 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.StorageResponse": {
+            "type": "object",
+            "properties": {
+                "limitBytes": {
+                    "type": "integer"
+                },
+                "usedBytes": {
+                    "type": "integer"
+                }
+            }
+        },
         "message.Message": {
             "type": "object",
             "properties": {
@@ -796,6 +1265,9 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "encrypted": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -803,6 +1275,128 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.AddRequest": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "keyPackageId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.Commit": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "epoch": {
+                    "type": "integer"
+                },
+                "payload": {
+                    "type": "string"
+                },
+                "senderDeviceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.CommitRequest": {
+            "type": "object",
+            "properties": {
+                "adds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mls.AddRequest"
+                    }
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "epoch": {
+                    "type": "integer"
+                },
+                "payload": {
+                    "type": "string"
+                },
+                "removes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "welcomes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mls.KeyPackage": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.Member": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.PendingAdd": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "keyPackage": {
+                    "type": "string"
+                },
+                "keyPackageId": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "mls.Welcome": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "epoch": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "payload": {
                     "type": "string"
                 }
             }

@@ -3,6 +3,8 @@ definitions:
     properties:
       createdAt:
         type: string
+      encrypted:
+        type: boolean
       height:
         type: integer
       id:
@@ -12,6 +14,8 @@ definitions:
       serverId:
         type: string
       size:
+        type: integer
+      thumbSize:
         type: integer
       thumbUrl:
         type: string
@@ -63,6 +67,44 @@ definitions:
       type:
         type: string
     type: object
+  handlers.CommitResponse:
+    properties:
+      epoch:
+        type: integer
+    type: object
+  handlers.ConsumeWelcomeRequest:
+    properties:
+      deviceId:
+        type: string
+      id:
+        type: string
+    type: object
+  handlers.GroupStateResponse:
+    properties:
+      coordinatorUserId:
+        description: |-
+          The connected member expected to commit pending changes: the owner when
+          online, else the lowest connected user id. Anyone may still commit.
+        type: string
+      epoch:
+        type: integer
+      keyPackagesLeft:
+        type: integer
+      members:
+        items:
+          $ref: '#/definitions/mls.Member'
+        type: array
+      pendingAdds:
+        items:
+          $ref: '#/definitions/mls.PendingAdd'
+        type: array
+      pendingRemoves:
+        items:
+          $ref: '#/definitions/mls.Member'
+        type: array
+      welcome:
+        $ref: '#/definitions/mls.Welcome'
+    type: object
   handlers.InviteCreatedResponse:
     properties:
       inviteToken:
@@ -99,6 +141,22 @@ definitions:
       id:
         type: string
     type: object
+  handlers.PublishKeyPackagesRequest:
+    properties:
+      deviceId:
+        type: string
+      keyPackages:
+        items:
+          $ref: '#/definitions/mls.KeyPackage'
+        type: array
+    type: object
+  handlers.RegisterDeviceRequest:
+    properties:
+      deviceId:
+        type: string
+      signingKey:
+        type: string
+    type: object
   handlers.ServerResponse:
     properties:
       claimed:
@@ -120,6 +178,13 @@ definitions:
         example: Armonic
         type: string
     type: object
+  handlers.StorageResponse:
+    properties:
+      limitBytes:
+        type: integer
+      usedBytes:
+        type: integer
+    type: object
   message.Message:
     properties:
       attachmentId:
@@ -130,11 +195,92 @@ definitions:
         type: string
       createdAt:
         type: string
+      encrypted:
+        type: boolean
       id:
         type: string
       serverId:
         type: string
       userId:
+        type: string
+    type: object
+  mls.AddRequest:
+    properties:
+      deviceId:
+        type: string
+      keyPackageId:
+        type: string
+    type: object
+  mls.Commit:
+    properties:
+      createdAt:
+        type: string
+      epoch:
+        type: integer
+      payload:
+        type: string
+      senderDeviceId:
+        type: string
+    type: object
+  mls.CommitRequest:
+    properties:
+      adds:
+        items:
+          $ref: '#/definitions/mls.AddRequest'
+        type: array
+      deviceId:
+        type: string
+      epoch:
+        type: integer
+      payload:
+        type: string
+      removes:
+        items:
+          type: string
+        type: array
+      welcomes:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  mls.KeyPackage:
+    properties:
+      deviceId:
+        type: string
+      id:
+        type: string
+      payload:
+        type: string
+      userId:
+        type: string
+    type: object
+  mls.Member:
+    properties:
+      deviceId:
+        type: string
+      userId:
+        type: string
+    type: object
+  mls.PendingAdd:
+    properties:
+      deviceId:
+        type: string
+      keyPackage:
+        type: string
+      keyPackageId:
+        type: string
+      userId:
+        type: string
+    type: object
+  mls.Welcome:
+    properties:
+      createdAt:
+        type: string
+      epoch:
+        type: integer
+      id:
+        type: string
+      payload:
         type: string
     type: object
   pow.Challenge:
@@ -382,6 +528,80 @@ paths:
       summary: Set own avatar
       tags:
       - Users
+  /me/mls/device:
+    post:
+      consumes:
+      - application/json
+      description: Declares this install's device id and Ed25519 signing key. Idempotent
+        for the same user; a device id owned by another account is rejected.
+      parameters:
+      - description: Device
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RegisterDeviceRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid device
+          schema:
+            type: string
+        "409":
+          description: device registered to another user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Register an MLS device
+      tags:
+      - MLS
+  /me/mls/keypackages:
+    post:
+      consumes:
+      - application/json
+      description: Adds single-use key packages for one of the caller's devices. Every
+        server the caller belongs to is nudged (`mls-sync`) so a committer can add
+        the device.
+      parameters:
+      - description: Key packages
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.PublishKeyPackagesRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid key packages
+          schema:
+            type: string
+        "403":
+          description: device belongs to another user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Publish key packages
+      tags:
+      - MLS
+  /me/storage:
+    get:
+      description: Bytes the caller's uploads occupy against the per-user quota.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.StorageResponse'
+      security:
+      - BearerAuth: []
+      summary: Own storage usage
+      tags:
+      - Users
   /pow/challenge:
     get:
       description: Issues an Altcha-compatible challenge. Solve it and send the base64
@@ -509,6 +729,135 @@ paths:
       summary: Server members
       tags:
       - Server
+  /server/{id}/mls:
+    get:
+      description: Member-only. The group's epoch and roster as the delivery service
+        sees it, the devices waiting to be added or evicted, who is expected to commit,
+        and — for the calling device — any pending welcome and how many key packages
+        it has left.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Calling device
+        in: query
+        name: deviceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.GroupStateResponse'
+        "403":
+          description: forbidden
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: MLS group state
+      tags:
+      - MLS
+  /server/{id}/mls/commit:
+    post:
+      consumes:
+      - application/json
+      description: Member-only. Advances the group one epoch. Rejected with 409 when
+        built against a stale epoch (fetch the missed commits and retry), 400 when
+        it adds a device without an available key package or removes one not in the
+        group. On success the commit is broadcast as `mls-commit` to every connected
+        member.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/mls.CommitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.CommitResponse'
+        "400":
+          description: invalid commit
+          schema:
+            type: string
+        "409":
+          description: stale epoch
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Post a commit
+      tags:
+      - MLS
+  /server/{id}/mls/commits:
+    get:
+      description: Member-only. The commits a device missed, in epoch order, so an
+        offline device can catch up.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Last epoch the device applied
+        in: query
+        name: after
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/mls.Commit'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Commits after an epoch
+      tags:
+      - MLS
+  /server/{id}/mls/welcome/ack:
+    post:
+      consumes:
+      - application/json
+      description: Marks a welcome as processed so the state endpoint stops returning
+        it.
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Welcome
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ConsumeWelcomeRequest'
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Acknowledge a welcome
+      tags:
+      - MLS
   /server/{id}/upload:
     post:
       consumes:
@@ -557,6 +906,56 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload an image
+      tags:
+      - Attachment
+  /server/{id}/upload/encrypted:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 'Member-only. Multipart upload of an end-to-end encrypted image:
+        "file" is the ciphertext of the sanitized image, "thumb" the ciphertext of
+        its thumbnail (optional; the full blob doubles as the thumbnail when absent).
+        The server stores both as opaque bytes — it cannot decode, validate or thumbnail
+        them — applying only the byte cap, the per-user rate limit and the storage
+        quota. The keys travel inside the MLS-encrypted message that references the
+        attachment (docs/ai/e2ee.md).'
+      parameters:
+      - description: Server ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Encrypted image
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Encrypted thumbnail
+        in: formData
+        name: thumb
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/attachment.Attachment'
+        "413":
+          description: file exceeds the maximum upload size
+          schema:
+            type: string
+        "429":
+          description: rate limit exceeded
+          schema:
+            type: string
+        "507":
+          description: storage quota exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Upload an encrypted attachment
       tags:
       - Attachment
 securityDefinitions:

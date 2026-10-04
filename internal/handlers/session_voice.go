@@ -158,6 +158,7 @@ func (s *connSession) handleKickServer(msg signal.Message) {
 	srv.KickUserFromAllVoice(msg.TargetUserID)
 	slog.InfoContext(s.ctx, "user kicked from server", logger.User(msg.TargetUserID), logger.Server(msg.ServerID), "by", s.user.ID)
 	s.conn.SendJSON(map[string]any{"type": "user-kicked", "targetUserId": msg.TargetUserID})
+	srv.BroadcastMessage("", map[string]any{"type": "mls-sync", "serverId": msg.ServerID})
 }
 
 func (s *connSession) leaveVoice() {

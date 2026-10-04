@@ -187,6 +187,7 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 		cfg,
 	)
 	uploads := handlers.NewUploads(blobs, repos.Attachments(), cfg.Upload)
+	mlsHandlers := handlers.NewMLS(repos.MLS(), repos.Memberships(), repos.Servers(), appState)
 
 	claimMgr := claim.New(cfg.ClaimPassword)
 	powMgr := pow.New(cfg.Pow.Enabled, cfg.JWTSecret, cfg.Pow.MaxNumber, cfg.Pow.TTL)
@@ -237,10 +238,18 @@ func New(ctx context.Context, cfg config.Config, repos *repo.Repositories) (*Ser
 	router.Protected("GET /server", handlers.GetMyServers(repos.Memberships(), repos.Servers()))
 	router.Protected("GET /me", handlers.GetMe(repos.Users()))
 	router.Protected("POST /me/avatar", uploads.Avatar(repos.Users(), defaultServerID))
+	router.Protected("GET /me/storage", uploads.Storage())
+	router.Protected("POST /me/mls/device", mlsHandlers.RegisterDevice())
+	router.Protected("POST /me/mls/keypackages", mlsHandlers.PublishKeyPackages())
 	// JWT + membership
 	router.Member("GET /server/{id}", handlers.GetByServer(repos.Channels()))
 	router.Member("GET /server/{id}/members", handlers.GetServerMembers(repos.Memberships(), appState))
 	router.Member("POST /server/{id}/upload", uploads.Upload())
+	router.Member("POST /server/{id}/upload/encrypted", uploads.UploadEncrypted())
+	router.Member("GET /server/{id}/mls", mlsHandlers.State())
+	router.Member("GET /server/{id}/mls/commits", mlsHandlers.Commits())
+	router.Member("POST /server/{id}/mls/commit", mlsHandlers.Commit())
+	router.Member("POST /server/{id}/mls/welcome/ack", mlsHandlers.AckWelcome())
 	router.MemberByChannel("GET /channel/{id}", handlers.GetChannelByID(repos.Channels(), appState))
 	router.MemberByChannel("GET /channel/{id}/messages", handlers.GetChannelMessages(repos.Channels(), repos.Messages()))
 	router.MemberByAttachment("GET /attachment/{id}", uploads.Serve(media.VariantFull))
