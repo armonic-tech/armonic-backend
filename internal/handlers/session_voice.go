@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/channel"
+	"github.com/armonic-tech/armonic-backend/internal/models/server"
 	"github.com/armonic-tech/armonic-backend/internal/models/signal"
 	"github.com/armonic-tech/armonic-backend/internal/models/user"
 	"github.com/armonic-tech/armonic-backend/internal/transport/rtc"
@@ -15,9 +17,6 @@ import (
 
 func (s *connSession) handleJoinVoice(msg signal.Message) {
 	vctx := logger.With(s.ctx, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID))
-	if s.user.VoiceChannelID != "" {
-		slog.WarnContext(vctx, "join-voice while already in a voice channel", "previous_channel_id", s.user.VoiceChannelID)
-	}
 
 	rtcConn, err := rtc.NewWebRTCConn()
 	if err != nil {
@@ -26,6 +25,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	}
 	if err := rtcConn.AddAudioTransceiver(); err != nil {
 		slog.ErrorContext(vctx, "join-voice transceiver error", "error", err)
+		rtcConn.Close()
 		return
 	}
 
@@ -81,6 +81,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		case webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed,
 			webrtc.PeerConnectionStateDisconnected:
+			srv.ReleaseVoice(u)
 			if ch.RemoveUserIf(u.ID, u) {
 				ch.Broadcast(u.ID, map[string]any{
 					"type":      "voice-leave",
@@ -96,21 +97,52 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	offer, err := rtcConn.CreateOffer()
 	if err != nil {
 		slog.ErrorContext(vctx, "join-voice offer error", "error", err)
+		rtcConn.Close()
 		return
 	}
 	if err := rtcConn.SetLocalDescription(offer); err != nil {
 		slog.ErrorContext(vctx, "join-voice set local description error", "error", err)
+		rtcConn.Close()
 		return
 	}
 	if err := s.conn.SendJSON(signal.Message{Type: "offer", SDP: &offer}); err != nil {
 		slog.ErrorContext(vctx, "join-voice send offer error", "error", err)
+		rtcConn.Close()
 		return
 	}
 
-	ch.AddUser(u)
+	prev, replaced, evicted := srv.JoinVoice(server.VoiceSession{User: u, ChannelID: msg.ChannelID, Media: rtcConn}, ch)
 	s.user = u
+	if replaced {
+		s.endReplacedVoice(vctx, srv, prev, evicted, msg.ChannelID)
+	}
 	slog.InfoContext(vctx, "user joined voice channel", "offer", channel.SDPSummary(offer.SDP),
 		"muted", u.IsMuted(), "deafened", u.IsDeafened())
+}
+
+// endReplacedVoice closes the call a user just left by joining again, from
+// this device or another one (docs/ai/ws-protocol.md, "One call per user").
+func (s *connSession) endReplacedVoice(ctx context.Context, srv *server.Server, prev server.VoiceSession, evicted bool, newChannelID string) {
+	sameConn := prev.User.Signaling == s.conn
+	if prev.Media != nil {
+		prev.Media.Close()
+	}
+	if evicted && prev.ChannelID != newChannelID {
+		if pc := srv.GetVoiceChannel(prev.ChannelID); pc != nil {
+			pc.Broadcast(prev.User.ID, map[string]any{
+				"type":      "voice-leave",
+				"userId":    prev.User.ID,
+				"channelId": prev.ChannelID,
+			})
+		}
+	}
+	if evicted && !sameConn {
+		if err := prev.User.Signaling.SendJSON(map[string]any{"type": "kicked-voice", "reason": "joined-elsewhere"}); err != nil {
+			slog.WarnContext(ctx, "voice: could not notify the replaced device", "error", err)
+		}
+	}
+	slog.InfoContext(ctx, "voice: previous session replaced", "previous_channel_id", prev.ChannelID,
+		"same_connection", sameConn, "was_present", evicted)
 }
 
 func (s *connSession) handleAnswer(msg signal.Message) {
@@ -199,7 +231,9 @@ func (s *connSession) leaveVoice() {
 		return
 	}
 	channelID := s.user.VoiceChannelID
-	ch := s.h.app.GetOrCreateServer(s.user.ServerID).GetOrCreateVoiceChannel(channelID)
+	srv := s.h.app.GetOrCreateServer(s.user.ServerID)
+	srv.ReleaseVoice(s.user)
+	ch := srv.GetOrCreateVoiceChannel(channelID)
 	removed := ch.RemoveUserIf(s.user.ID, s.user)
 	s.user.VoiceChannelID = ""
 	if s.user.Media != nil {

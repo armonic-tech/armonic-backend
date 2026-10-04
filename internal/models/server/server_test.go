@@ -91,6 +91,80 @@ func TestRemoveUserDropsEveryConnection(t *testing.T) {
 	require.Empty(t, sv.ConnectedUserIDs())
 }
 
+func voiceUser(id string) *user.User {
+	return &user.User{ID: id, Signaling: &fakeSocket{}}
+}
+
+func TestJoinVoiceReplacesTheUsersPreviousSession(t *testing.T) {
+	sv := NewServer("s")
+	general := sv.GetOrCreateVoiceChannel("general")
+	music := sv.GetOrCreateVoiceChannel("music")
+
+	laptop := voiceUser("ana")
+	_, replaced, _ := sv.JoinVoice(VoiceSession{User: laptop, ChannelID: "general"}, general)
+	require.False(t, replaced)
+
+	phone := voiceUser("ana")
+	prev, replaced, evicted := sv.JoinVoice(VoiceSession{User: phone, ChannelID: "music"}, music)
+	require.True(t, replaced)
+	require.True(t, evicted)
+	require.Same(t, laptop, prev.User)
+	require.Equal(t, "general", prev.ChannelID)
+	require.Empty(t, general.Members(), "the old device left its channel")
+	require.Len(t, music.Members(), 1)
+}
+
+func TestJoinVoiceAgainInTheSameChannelKeepsOneEntry(t *testing.T) {
+	sv := NewServer("s")
+	general := sv.GetOrCreateVoiceChannel("general")
+	first, second := voiceUser("ana"), voiceUser("ana")
+
+	sv.JoinVoice(VoiceSession{User: first, ChannelID: "general"}, general)
+	_, replaced, evicted := sv.JoinVoice(VoiceSession{User: second, ChannelID: "general"}, general)
+
+	require.True(t, replaced)
+	require.True(t, evicted)
+	require.Len(t, general.Members(), 1)
+	require.False(t, general.RemoveUserIf("ana", first), "the stale session is no longer the member")
+	require.True(t, general.RemoveUserIf("ana", second))
+}
+
+func TestReleaseVoiceIgnoresAReplacedSession(t *testing.T) {
+	sv := NewServer("s")
+	general := sv.GetOrCreateVoiceChannel("general")
+	first, second := voiceUser("ana"), voiceUser("ana")
+	sv.JoinVoice(VoiceSession{User: first, ChannelID: "general"}, general)
+	sv.JoinVoice(VoiceSession{User: second, ChannelID: "general"}, general)
+
+	sv.ReleaseVoice(first) // late cleanup of the replaced session
+	_, replaced, _ := sv.JoinVoice(VoiceSession{User: voiceUser("ana"), ChannelID: "general"}, general)
+	require.True(t, replaced, "second must still have held the claim")
+
+	sv.ReleaseVoice(second)
+}
+
+func TestConcurrentJoinsLeaveExactlyOneSession(t *testing.T) {
+	sv := NewServer("s")
+	a := sv.GetOrCreateVoiceChannel("a")
+	b := sv.GetOrCreateVoiceChannel("b")
+
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ch, id := a, "a"
+			if i%2 == 1 {
+				ch, id = b, "b"
+			}
+			sv.JoinVoice(VoiceSession{User: voiceUser("ana"), ChannelID: id}, ch)
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, 1, len(a.Members())+len(b.Members()))
+}
+
 // The "El mensaje ya no existe" bug: the admin reconnects and the server only
 // notices the old socket died later. Its cleanup used to delete the user's
 // only entry — the live socket's — so the live client stopped receiving

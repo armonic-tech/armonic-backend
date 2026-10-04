@@ -18,7 +18,18 @@ type Server struct {
 	// *user.User: join-voice swaps the session's User for a new one, while the
 	// socket stays the same for the whole connection.
 	ConnectedUsers map[string]map[user.Socket]struct{}
+	voice          map[string]VoiceSession
 	mu             sync.RWMutex
+	joinMu         sync.Mutex
+}
+
+// VoiceSession is the one call a user is allowed to be in. Channel and Media
+// are copied at claim time so evicting it never reads fields the owning
+// connection may be writing.
+type VoiceSession struct {
+	User      *user.User
+	ChannelID string
+	Media     user.RTCConn
 }
 
 func NewServer(id string) *Server {
@@ -28,6 +39,7 @@ func NewServer(id string) *Server {
 		TextChannels:   make(map[string]*channel.TextChannel),
 		VoiceChannels:  make(map[string]*channel.VoiceChannel),
 		ConnectedUsers: make(map[string]map[user.Socket]struct{}),
+		voice:          make(map[string]VoiceSession),
 	}
 }
 
@@ -113,6 +125,40 @@ func (s *Server) BroadcastMessage(except user.Socket, msg any) {
 		if err := sock.SendJSON(msg); err != nil {
 			slog.Debug("broadcast: send failed", logger.Server(s.ID), logger.User(ids[i]), "error", err)
 		}
+	}
+}
+
+// JoinVoice makes vs the user's only voice session and puts it in ch,
+// returning the session it replaced. Replace, evict and insert run as one
+// step under joinMu: the channel maps are keyed by user id, so two devices
+// joining at once could otherwise each overwrite the other's entry. joinMu is
+// taken only here, and channels never call back into the server.
+func (s *Server) JoinVoice(vs VoiceSession, ch *channel.VoiceChannel) (prev VoiceSession, replaced, evicted bool) {
+	s.joinMu.Lock()
+	defer s.joinMu.Unlock()
+
+	s.mu.Lock()
+	prev, replaced = s.voice[vs.User.ID]
+	s.voice[vs.User.ID] = vs
+	s.mu.Unlock()
+	replaced = replaced && prev.User != vs.User
+
+	if replaced {
+		if pc := s.GetVoiceChannel(prev.ChannelID); pc != nil {
+			evicted = pc.RemoveUserIf(prev.User.ID, prev.User)
+		}
+	}
+	ch.AddUser(vs.User)
+	return prev, replaced, evicted
+}
+
+// ReleaseVoice clears the claim only if u still holds it, so a late cleanup
+// of a replaced session cannot release its successor.
+func (s *Server) ReleaseVoice(u *user.User) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.voice[u.ID].User == u {
+		delete(s.voice, u.ID)
 	}
 }
 
