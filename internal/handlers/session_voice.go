@@ -18,14 +18,20 @@ import (
 func (s *connSession) handleJoinVoice(msg signal.Message) {
 	vctx := logger.With(s.ctx, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID))
 
+	// Every failure answers: the client shows "waiting for the voice server"
+	// until an offer or this error arrives, and silence would leave it there.
+	fail := func(stage string, err error) {
+		s.reject(msg.Type, "could not join voice", err, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "stage", stage)
+	}
+
 	rtcConn, err := rtc.NewWebRTCConn()
 	if err != nil {
-		slog.ErrorContext(vctx, "join-voice rtc error", "error", err)
+		fail("peer connection", err)
 		return
 	}
 	if err := rtcConn.AddAudioTransceiver(); err != nil {
-		slog.ErrorContext(vctx, "join-voice transceiver error", "error", err)
 		rtcConn.Close()
+		fail("transceiver", err)
 		return
 	}
 
@@ -78,9 +84,13 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		slog.Log(vctx, level, "voice: peer connection state", args...)
 
 		switch state {
+		case webrtc.PeerConnectionStateConnected:
+			u.SetLinked(true)
+			ch.Broadcast(u.ID, voiceLink(u.ID, msg.ChannelID, true))
 		case webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed,
 			webrtc.PeerConnectionStateDisconnected:
+			u.SetLinked(false)
 			srv.ReleaseVoice(u)
 			if ch.RemoveUserIf(u.ID, u) {
 				ch.Broadcast(u.ID, map[string]any{
@@ -96,13 +106,13 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 
 	offer, err := rtcConn.CreateOffer()
 	if err != nil {
-		slog.ErrorContext(vctx, "join-voice offer error", "error", err)
 		rtcConn.Close()
+		fail("create offer", err)
 		return
 	}
 	if err := rtcConn.SetLocalDescription(offer); err != nil {
-		slog.ErrorContext(vctx, "join-voice set local description error", "error", err)
 		rtcConn.Close()
+		fail("set local description", err)
 		return
 	}
 	if err := s.conn.SendJSON(signal.Message{Type: "offer", SDP: &offer}); err != nil {
@@ -116,8 +126,17 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	if replaced {
 		s.endReplacedVoice(vctx, srv, prev, evicted, msg.ChannelID)
 	}
+	// Announced unlinked right away so the others see who is connecting
+	// instead of waiting for their next presence poll.
+	ch.Broadcast(u.ID, voiceLink(u.ID, msg.ChannelID, u.IsLinked()))
 	slog.InfoContext(vctx, "user joined voice channel", "offer", channel.SDPSummary(offer.SDP),
 		"muted", u.IsMuted(), "deafened", u.IsDeafened())
+}
+
+// voiceLink tells a channel's other members whether userID's peer connection
+// is up (docs/ai/ws-protocol.md, "Voice link state").
+func voiceLink(userID, channelID string, linked bool) map[string]any {
+	return map[string]any{"type": "voice-link", "userId": userID, "channelId": channelID, "linked": linked}
 }
 
 // endReplacedVoice closes the call a user just left by joining again, from

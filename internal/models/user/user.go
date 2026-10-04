@@ -17,6 +17,7 @@ type User struct {
 
 	muted    atomic.Bool
 	deafened atomic.Bool
+	linked   atomic.Bool
 }
 
 func (u *User) SetVoiceState(muted, deafened bool) (bool, bool) {
@@ -27,6 +28,11 @@ func (u *User) SetVoiceState(muted, deafened bool) (bool, bool) {
 	u.deafened.Store(deafened)
 	return muted, deafened
 }
+
+// SetLinked records whether this voice session's peer connection is up;
+// false from join until ICE and DTLS complete.
+func (u *User) SetLinked(v bool) { u.linked.Store(v) }
+func (u *User) IsLinked() bool   { return u.linked.Load() }
 
 func (u *User) IsMuted() bool    { return u.muted.Load() }
 func (u *User) IsDeafened() bool { return u.deafened.Load() }

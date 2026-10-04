@@ -2,6 +2,8 @@ package channel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -26,6 +28,7 @@ type publication struct {
 	sender    *user.User
 	track     *webrtc.TrackRemote
 	channelID string
+	streamID  string
 
 	mu      sync.Mutex
 	outs    atomic.Pointer[[]*outbound]
@@ -144,6 +147,7 @@ func (vc *VoiceChannel) Members() []Member {
 			AvatarID:    u.AvatarID,
 			Muted:       u.IsMuted(),
 			Deafened:    u.IsDeafened(),
+			Linked:      u.IsLinked(),
 		})
 	}
 	return members
@@ -232,7 +236,7 @@ func (vc *VoiceChannel) Broadcast(senderID string, msg any) {
 }
 
 func (vc *VoiceChannel) ForwardTrack(sender *user.User, track *webrtc.TrackRemote) {
-	pub := &publication{sender: sender, track: track, channelID: vc.ID}
+	pub := &publication{sender: sender, track: track, channelID: vc.ID, streamID: StreamIDFor(sender.ID)}
 
 	vc.mu.Lock()
 	vc.pubs[sender.ID] = pub
@@ -267,7 +271,7 @@ func attach(pub *publication, receiver *user.User) {
 	localTrack, err := webrtc.NewTrackLocalStaticRTP(
 		pub.track.Codec().RTPCodecCapability,
 		pub.track.ID(),
-		pub.track.StreamID(),
+		pub.streamID,
 	)
 	if err != nil {
 		slog.Error("voice: creating local track", logger.User(receiver.ID), logger.Channel(pub.channelID), "error", err)
@@ -305,7 +309,7 @@ func attach(pub *publication, receiver *user.User) {
 	}
 
 	slog.Info("voice: track attached",
-		"from", pub.sender.ID, "to", receiver.ID, logger.Channel(pub.channelID), "stream", pub.track.StreamID(),
+		"from", pub.sender.ID, "to", receiver.ID, logger.Channel(pub.channelID), "stream", pub.streamID,
 		"offer", SDPSummary(offer.SDP))
 
 	if rtpSender != nil {
@@ -320,6 +324,16 @@ func attach(pub *publication, receiver *user.User) {
 			}
 		}()
 	}
+}
+
+// StreamIDFor names a relayed stream "<senderUserID>.<random>": the listener
+// learns whose audio a track carries from the msid alone, and the suffix keeps
+// a sender's next publication (after a rejoin) from colliding with the dead
+// one still sitting in the listener's peer connection.
+func StreamIDFor(senderID string) string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return senderID + "." + hex.EncodeToString(b[:])
 }
 
 func SDPSummary(sdp string) string {

@@ -13,4 +13,7 @@ type Member struct {
 	AvatarID    string `json:"avatarId,omitempty"`
 	Muted       bool   `json:"muted"`
 	Deafened    bool   `json:"deafened"`
+	// Linked is false while the member's peer connection is still being set
+	// up: present in the channel, but no audio can flow either way yet.
+	Linked bool `json:"linked"`
 }

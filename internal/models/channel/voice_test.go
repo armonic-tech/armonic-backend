@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/armonic-tech/armonic-backend/internal/models/user"
@@ -118,4 +119,27 @@ func TestVoice_BroadcastExcludesSender(t *testing.T) {
 	require.Empty(t, u1.Signaling.(*MockSocket).jsonPayloads)
 	require.Len(t, u2.Signaling.(*MockSocket).jsonPayloads, 1)
 	require.Len(t, u3.Signaling.(*MockSocket).jsonPayloads, 1)
+}
+
+func TestVoice_MembersReportWhoseLinkIsUp(t *testing.T) {
+	vc := NewVoiceChannel("voice-id", "server-id")
+	connecting := &user.User{ID: "connecting", Signaling: &MockSocket{}}
+	linked := &user.User{ID: "linked", Signaling: &MockSocket{}}
+	linked.SetLinked(true)
+	vc.AddUser(connecting)
+	vc.AddUser(linked)
+
+	got := map[string]bool{}
+	for _, m := range vc.Members() {
+		got[m.ID] = m.Linked
+	}
+	require.Equal(t, map[string]bool{"connecting": false, "linked": true}, got)
+}
+
+func TestStreamIDNamesTheSenderAndIsUniquePerPublication(t *testing.T) {
+	a, b := StreamIDFor("user-1"), StreamIDFor("user-1")
+	require.True(t, strings.HasPrefix(a, "user-1."))
+	require.NotEqual(t, a, b, "a rejoin must not reuse the dead publication's stream")
+	// msid ids are at most 64 token chars; a UUID sender leaves room.
+	require.LessOrEqual(t, len(StreamIDFor("0f8fad5b-d9cb-469f-a165-70867728950e")), 64)
 }

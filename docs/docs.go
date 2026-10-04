@@ -1045,6 +1045,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "linked": {
+                    "description": "Linked is false while the member's peer connection is still being set\nup: present in the channel, but no audio can flow either way yet.",
+                    "type": "boolean"
+                },
                 "muted": {
                     "type": "boolean"
                 }
