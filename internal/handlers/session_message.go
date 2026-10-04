@@ -99,13 +99,14 @@ func (s *connSession) handleDeleteMessage(msg signal.Message) {
 		s.reject(msg.Type, "message id invalid", nil)
 		return
 	}
+	target := map[string]any{"messageId": msg.MessageID, "channelId": msg.ChannelID}
 	deleted, err := s.h.messageRepo.SoftDelete(s.ctx, msg.ServerID, msg.ChannelID, msg.MessageID, s.user.ID)
 	if err != nil {
-		s.reject(msg.Type, "could not delete message", err, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)
+		s.rejectWith(msg.Type, "could not delete message", target, err, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)
 		return
 	}
 	if !deleted {
-		s.reject(msg.Type, "message not found", nil, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)
+		s.rejectWith(msg.Type, "message not found", target, nil, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)
 		return
 	}
 	slog.InfoContext(s.ctx, "message deleted", logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "message_id", msg.MessageID)

@@ -227,13 +227,23 @@ func (s *connSession) send(v any) {
 // reject answers a frame with an error and logs why: Warn for a refusal,
 // Error when err says something actually broke.
 func (s *connSession) reject(frame, clientMsg string, err error, args ...any) {
+	s.rejectWith(frame, clientMsg, nil, err, args...)
+}
+
+// rejectWith is reject plus fields on the error frame, for a client that must
+// know which of its requests failed.
+func (s *connSession) rejectWith(frame, clientMsg string, fields map[string]any, err error, args ...any) {
 	level := slog.LevelWarn
 	if err != nil {
 		level = slog.LevelError
 		args = append(args, "error", err)
 	}
 	slog.Log(s.ctx, level, "ws: "+frame+" rejected", append([]any{"reason", clientMsg}, args...)...)
-	s.send(map[string]any{"type": "error", "message": clientMsg})
+	reply := map[string]any{"type": "error", "message": clientMsg}
+	for k, v := range fields {
+		reply[k] = v
+	}
+	s.send(reply)
 }
 
 func newConnID() string {

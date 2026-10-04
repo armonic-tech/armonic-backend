@@ -90,3 +90,34 @@ func TestRemoveUserDropsEveryConnection(t *testing.T) {
 	require.Zero(t, phone.count())
 	require.Empty(t, sv.ConnectedUserIDs())
 }
+
+// The "El mensaje ya no existe" bug: the admin reconnects and the server only
+// notices the old socket died later. Its cleanup used to delete the user's
+// only entry — the live socket's — so the live client stopped receiving
+// message-deleted (and every other push). A delete looked like it did
+// nothing; trying again answered "message not found".
+func TestLateDisconnectOfAStaleSocketKeepsTheLiveOneSubscribed(t *testing.T) {
+	sv := NewServer("s")
+	stale, live := &fakeSocket{}, &fakeSocket{}
+	sv.AddConnectedUser(&user.User{ID: "admin", Signaling: stale})
+	sv.AddConnectedUser(&user.User{ID: "admin", Signaling: live})
+
+	sv.RemoveConnection("admin", stale)
+	sv.BroadcastMessage(nil, map[string]any{"type": "message-deleted"})
+
+	require.Equal(t, 1, live.count())
+}
+
+// Same bug with two sessions open: only the newest got the broadcast, so the
+// session that asked for the delete never saw it confirmed.
+func TestEverySessionOfTheDeleterSeesMessageDeleted(t *testing.T) {
+	sv := NewServer("s")
+	first, second := &fakeSocket{}, &fakeSocket{}
+	sv.AddConnectedUser(&user.User{ID: "admin", Signaling: first})
+	sv.AddConnectedUser(&user.User{ID: "admin", Signaling: second})
+
+	sv.BroadcastMessage(nil, map[string]any{"type": "message-deleted"})
+
+	require.Equal(t, 1, first.count())
+	require.Equal(t, 1, second.count())
+}
