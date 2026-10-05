@@ -1,9 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"image"
+	"image/png"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,6 +97,54 @@ func getJSON(t *testing.T, client *http.Client, url string, out any) int {
 //     works because ClaimRegisterHandler calls ServerRepo.SetOwner)
 //  5. that invite lets a brand-new user sign up over HTTP
 //  6. the same invite can't be redeemed a second time
+func getBytes(t *testing.T, client *http.Client, url string) (int, []byte) {
+	t.Helper()
+	resp, err := client.Get(url)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, body
+}
+
+func doMethod(t *testing.T, client *http.Client, method, url, token string) int {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func uploadPNG(t *testing.T, client *http.Client, url, token string, out any) int {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 24, 24))
+	var pixels bytes.Buffer
+	require.NoError(t, png.Encode(&pixels, img))
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", "logo.png")
+	require.NoError(t, err)
+	_, err = part.Write(pixels.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req, err := http.NewRequest(http.MethodPost, url, &body)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if out != nil {
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
+	}
+	return resp.StatusCode
+}
+
 func TestClaimAndInviteFlow(t *testing.T) {
 	cfg := config.Config{
 		Port:          "0",
@@ -100,7 +153,14 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		JWTSecret:     "test-jwt-secret",
 		ClaimPassword: "smoke-test-claim-password",
 		MaxMsgLen:     2000,
-		Upload:        config.UploadConfig{Dir: t.TempDir()},
+		// Real limits, not the zero value: with MaxBytes 0 every upload is
+		// rejected as too large and the logo subtest would test nothing.
+		Upload: config.UploadConfig{
+			Dir: t.TempDir(), MaxBytes: 1 << 20,
+			MaxImageWidth: 2000, MaxImageHeight: 2000, MaxImagePixels: 4_000_000,
+			ThumbnailSize: 64, RatePerMin: 60, Burst: 10, MaxConcurrent: 2,
+			MaxUserBytes: 10 << 20,
+		},
 	}
 
 	repos := repo.InitRepositories(testDB)
@@ -228,6 +288,78 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		}
 		getJSON(t, client, ts.URL+"/info", &info)
 		require.Equal(t, 2, info.MemberCount) // admin + newmember
+	})
+
+	var memberToken string
+
+	t.Run("invite/signup redeems a second invite for a plain member", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/server/"+defaultServerID+"/invite", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		var inviteResp struct {
+			InviteToken string `json:"inviteToken"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&inviteResp))
+
+		var signupResp struct {
+			Token string `json:"token"`
+		}
+		status := postJSON(t, client, ts.URL+"/invite/signup", map[string]string{
+			"token":    inviteResp.InviteToken,
+			"username": "logowatcher",
+			"password": "member-password-123",
+		}, &signupResp)
+		require.Equal(t, http.StatusOK, status)
+		memberToken = signupResp.Token
+	})
+
+	// Against the real composition root, so a logo route missing from New()
+	// fails here instead of 404ing a client.
+	t.Run("the admin sets a logo every member can read, and removes it", func(t *testing.T) {
+		logoURL := ts.URL + "/server/" + defaultServerID + "/logo"
+
+		status, _ := getBytes(t, client, logoURL)
+		require.Equal(t, http.StatusNotFound, status, "no logo yet")
+
+		var set struct {
+			LogoID       string `json:"logoId"`
+			LogoThumbURL string `json:"logoThumbUrl"`
+		}
+		require.Equal(t, http.StatusOK, uploadPNG(t, client, logoURL, adminToken, &set))
+		require.NotEmpty(t, set.LogoID)
+		require.Contains(t, set.LogoThumbURL, "/logo/thumb?v="+set.LogoID)
+
+		// Public: no Authorization header anywhere in this read.
+		status, body := getBytes(t, client, logoURL)
+		require.Equal(t, http.StatusOK, status)
+		require.NotEmpty(t, body)
+		status, _ = getBytes(t, client, logoURL+"/thumb")
+		require.Equal(t, http.StatusOK, status)
+
+		var info struct {
+			LogoID  string `json:"logoId"`
+			LogoURL string `json:"logoUrl"`
+		}
+		getJSON(t, client, ts.URL+"/info", &info)
+		require.Equal(t, set.LogoID, info.LogoID)
+		require.Contains(t, info.LogoURL, "?v="+set.LogoID)
+
+		// A member is not the owner: upload and removal are both refused.
+		require.Equal(t, http.StatusForbidden, uploadPNG(t, client, logoURL, memberToken, nil))
+		require.Equal(t, http.StatusForbidden, doMethod(t, client, http.MethodDelete, logoURL, memberToken))
+
+		require.Equal(t, http.StatusNoContent, doMethod(t, client, http.MethodDelete, logoURL, adminToken))
+		status, _ = getBytes(t, client, logoURL)
+		require.Equal(t, http.StatusNotFound, status)
+		// A fresh struct: an absent field leaves whatever the previous decode
+		// put there, which would hide the removal.
+		info.LogoID = ""
+		getJSON(t, client, ts.URL+"/info", &info)
+		require.Empty(t, info.LogoID)
 	})
 
 	t.Run("the same invite can't be redeemed twice", func(t *testing.T) {

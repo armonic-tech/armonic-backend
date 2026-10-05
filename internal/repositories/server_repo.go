@@ -50,7 +50,7 @@ func (r *ServerRepo) GetByIDs(ctx context.Context, ids []string) ([]server.Serve
 		args[i] = id
 	}
 
-	query := "SELECT id, name, COALESCE(owner_id, '') FROM servers WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	query := "SELECT id, name, COALESCE(owner_id, ''), COALESCE(logo_id, '') FROM servers WHERE id IN (" + strings.Join(placeholders, ",") + ")"
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (r *ServerRepo) GetByIDs(ctx context.Context, ids []string) ([]server.Serve
 	var servers []server.ServerInfo
 	for rows.Next() {
 		var s server.ServerInfo
-		if err := rows.Scan(&s.ID, &s.Name, &s.OwnerID); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.OwnerID, &s.LogoID); err != nil {
 			return nil, err
 		}
 		servers = append(servers, s)
@@ -83,4 +83,29 @@ func (r *ServerRepo) SetOwner(ctx context.Context, serverID, ownerID string) err
 		ownerID, serverID,
 	)
 	return err
+}
+
+func (r *ServerRepo) SetLogo(ctx context.Context, serverID, attachmentID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE servers SET logo_id = $1 WHERE id = $2`,
+		attachmentID, serverID,
+	)
+	return err
+}
+
+// ClearLogo leaves the server without a logo. The attachment row and its
+// blob stay — nothing frees upload quota yet (docs/ai/uploads.md).
+func (r *ServerRepo) ClearLogo(ctx context.Context, serverID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE servers SET logo_id = NULL WHERE id = $1`, serverID)
+	return err
+}
+
+func (r *ServerRepo) LogoID(ctx context.Context, serverID string) (string, error) {
+	var logo sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT logo_id FROM servers WHERE id = $1`, serverID).Scan(&logo)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return logo.String, err
 }

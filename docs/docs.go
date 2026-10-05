@@ -590,6 +590,136 @@ const docTemplate = `{
                 }
             }
         },
+        "/server/{id}/logo": {
+            "get": {
+                "description": "Public. The server's logo bytes, or 404 when none is set. Unauthenticated on purpose: the rail of a client draws an instance it may not (yet) be a member of, next to the name and description /info already hands out.",
+                "tags": [
+                    "Server"
+                ],
+                "summary": "Fetch the server logo",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "logo not set",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owner-only. Uploads an image through the same pipeline as attachments and points the server's logo at it. The logo is then readable without a token (GET /server/{id}/logo), since it is part of the instance's public identity like its name.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Server"
+                ],
+                "summary": "Set the server logo",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Image file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ServerLogoResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "forbidden",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "413": {
+                        "description": "file exceeds the maximum upload size",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "415": {
+                        "description": "unsupported image format",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "429": {
+                        "description": "rate limit exceeded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owner-only. Leaves the server without a logo, so clients fall back to drawing its initials; GET /server/{id}/logo answers 404 again. Idempotent — a server that has no logo still answers 204. The uploaded image itself is kept (no attachment deletion exists yet), it is only unlinked.",
+                "tags": [
+                    "Server"
+                ],
+                "summary": "Remove the server logo",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Server ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "forbidden",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/server/{id}/members": {
             "get": {
                 "security": [
@@ -1214,6 +1344,23 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.ServerLogoResponse": {
+            "type": "object",
+            "properties": {
+                "attachmentId": {
+                    "type": "string"
+                },
+                "logoId": {
+                    "type": "string"
+                },
+                "logoThumbUrl": {
+                    "type": "string"
+                },
+                "logoUrl": {
+                    "type": "string"
+                }
+            }
+        },
         "handlers.ServerResponse": {
             "type": "object",
             "properties": {
@@ -1232,6 +1379,15 @@ const docTemplate = `{
                 "id": {
                     "type": "string",
                     "example": "1a2b3c4d5e-..."
+                },
+                "logoId": {
+                    "type": "string"
+                },
+                "logoThumbUrl": {
+                    "type": "string"
+                },
+                "logoUrl": {
+                    "type": "string"
                 },
                 "memberCount": {
                     "type": "integer",
@@ -1452,6 +1608,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "id": {
+                    "type": "string"
+                },
+                "logoId": {
+                    "type": "string"
+                },
+                "logoThumbUrl": {
+                    "type": "string"
+                },
+                "logoUrl": {
                     "type": "string"
                 },
                 "name": {

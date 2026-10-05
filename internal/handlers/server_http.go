@@ -107,6 +107,12 @@ func GetMyServers(memberships MembershipLister, servers ServerByIDsGetter) http.
 		if list == nil {
 			list = []server.ServerInfo{}
 		}
+		for i := range list {
+			if list[i].LogoID != "" {
+				list[i].LogoURL = server.LogoURLFor(list[i].ID, list[i].LogoID)
+				list[i].LogoThumbURL = server.LogoThumbURLFor(list[i].ID, list[i].LogoID)
+			}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(list)

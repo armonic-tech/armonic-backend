@@ -13,6 +13,7 @@ import (
 	"github.com/armonic-tech/armonic-backend/config"
 	"github.com/armonic-tech/armonic-backend/internal/media"
 	"github.com/armonic-tech/armonic-backend/internal/models/attachment"
+	"github.com/armonic-tech/armonic-backend/internal/models/server"
 	"github.com/armonic-tech/armonic-backend/pkg/logger"
 	"github.com/armonic-tech/armonic-backend/pkg/ratelimit"
 	"github.com/google/uuid"
@@ -22,6 +23,10 @@ const (
 	uploadFormField = "file"
 	multipartSlack  = 1 << 20
 	blobCacheTTL    = "private, max-age=31536000, immutable"
+	// The logo lives at a stable path whose bytes change, so it cannot claim
+	// to be immutable; the ?v= in the advertised URL is what makes a change
+	// visible immediately, this is only the floor for a client that drops it.
+	logoCacheTTL = "public, max-age=300"
 )
 
 type BlobStore interface {
@@ -47,6 +52,12 @@ const (
 
 type AvatarStore interface {
 	SetAvatar(ctx context.Context, id, attachmentID string) error
+}
+
+type ServerLogoStore interface {
+	SetLogo(ctx context.Context, serverID, attachmentID string) error
+	ClearLogo(ctx context.Context, serverID string) error
+	LogoID(ctx context.Context, serverID string) (string, error)
 }
 
 type Uploads struct {
@@ -152,45 +163,164 @@ func (u *Uploads) Avatar(users AvatarStore, serverID string) http.HandlerFunc {
 // @Router       /attachment/{id} [get]
 func (u *Uploads) Serve(variant string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		att, err := u.repo.GetByID(ctx, r.PathValue("id"))
-		if err != nil {
-			slog.ErrorContext(ctx, "attachment: error loading row", "attachment_id", r.PathValue("id"), "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if att == nil {
-			http.Error(w, "attachment not found", http.StatusNotFound)
-			return
-		}
-
-		format := att.Format
-		if variant == media.VariantThumb {
-			format = att.ThumbFormat
-		}
-		contentType := media.Format(format).MIME()
-		if att.Encrypted {
-			contentType = octetStream
-		}
-		body, modTime, err := u.store.Open(att.Hash, variant)
-		if errors.Is(err, media.ErrNotFound) {
-			slog.ErrorContext(ctx, "attachment row without a blob", "attachment_id", att.ID, "hash", att.Hash, "variant", variant)
-			http.Error(w, "attachment not found", http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			slog.ErrorContext(ctx, "attachment: error opening blob", "attachment_id", att.ID, "variant", variant, "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		defer body.Close()
-
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Disposition", "inline")
-		w.Header().Set("Cache-Control", blobCacheTTL)
-		http.ServeContent(w, r, "", modTime, body)
+		u.serveAttachment(w, r, r.PathValue("id"), variant, blobCacheTTL)
 	}
+}
+
+// ServerLogoResponse answers both logo writes. It carries the URLs rather
+// than only the attachment id because the attachment's own URL is
+// membership-gated while the logo's is public — a client that built one from
+// the other would get 403s from the rail.
+type ServerLogoResponse struct {
+	AttachmentID string `json:"attachmentId"`
+	LogoID       string `json:"logoId,omitempty"`
+	LogoURL      string `json:"logoUrl,omitempty"`
+	LogoThumbURL string `json:"logoThumbUrl,omitempty"`
+}
+
+// @Summary      Set the server logo
+// @Description  Owner-only. Uploads an image through the same pipeline as attachments and points the server's logo at it. The logo is then readable without a token (GET /server/{id}/logo), since it is part of the instance's public identity like its name.
+// @Tags         Server
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        id path string true "Server ID"
+// @Param        file formData file true "Image file"
+// @Success      200 {object} ServerLogoResponse
+// @Failure      403 {string} string "forbidden"
+// @Failure      413 {string} string "file exceeds the maximum upload size"
+// @Failure      415 {string} string "unsupported image format"
+// @Failure      429 {string} string "rate limit exceeded"
+// @Security     BearerAuth
+// @Router       /server/{id}/logo [post]
+func (u *Uploads) ServerLogo(servers ServerLogoStore, presence Broadcaster) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		userID, ok := UserID(ctx)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		serverID := r.PathValue("id")
+		att, ok := u.ingest(w, r, serverID, userID)
+		if !ok {
+			return
+		}
+		if err := servers.SetLogo(ctx, serverID, att.ID); err != nil {
+			slog.ErrorContext(ctx, "logo: error saving", logger.Server(serverID), "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		resp := ServerLogoResponse{
+			AttachmentID: att.ID,
+			LogoID:       att.ID,
+			LogoURL:      server.LogoURLFor(serverID, att.ID),
+			LogoThumbURL: server.LogoThumbURLFor(serverID, att.ID),
+		}
+		presence.BroadcastToServer(serverID, map[string]any{
+			"type":         "server-updated",
+			"serverId":     serverID,
+			"logoId":       resp.LogoID,
+			"logoUrl":      resp.LogoURL,
+			"logoThumbUrl": resp.LogoThumbURL,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// @Summary      Remove the server logo
+// @Description  Owner-only. Leaves the server without a logo, so clients fall back to drawing its initials; GET /server/{id}/logo answers 404 again. Idempotent — a server that has no logo still answers 204. The uploaded image itself is kept (no attachment deletion exists yet), it is only unlinked.
+// @Tags         Server
+// @Param        id path string true "Server ID"
+// @Success      204
+// @Failure      403 {string} string "forbidden"
+// @Security     BearerAuth
+// @Router       /server/{id}/logo [delete]
+func (u *Uploads) DeleteServerLogo(servers ServerLogoStore, presence Broadcaster) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		serverID := r.PathValue("id")
+		if err := servers.ClearLogo(ctx, serverID); err != nil {
+			slog.ErrorContext(ctx, "logo: error clearing", logger.Server(serverID), "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Same frame as setting one, with no logoId: "this server has none"
+		// has to be pushed as explicitly as a new logo, or a client that
+		// already drew one would keep it.
+		presence.BroadcastToServer(serverID, map[string]any{
+			"type":     "server-updated",
+			"serverId": serverID,
+		})
+		slog.InfoContext(ctx, "server logo removed", logger.Server(serverID))
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// @Summary      Fetch the server logo
+// @Description  Public. The server's logo bytes, or 404 when none is set. Unauthenticated on purpose: the rail of a client draws an instance it may not (yet) be a member of, next to the name and description /info already hands out.
+// @Tags         Server
+// @Param        id path string true "Server ID"
+// @Success      200 {file} binary
+// @Failure      404 {string} string "logo not set"
+// @Router       /server/{id}/logo [get]
+func (u *Uploads) ServeLogo(servers ServerLogoStore, variant string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		serverID := r.PathValue("id")
+		logoID, err := servers.LogoID(ctx, serverID)
+		if err != nil {
+			slog.ErrorContext(ctx, "logo: error reading id", logger.Server(serverID), "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if logoID == "" {
+			http.Error(w, "logo not set", http.StatusNotFound)
+			return
+		}
+		u.serveAttachment(w, r, logoID, variant, logoCacheTTL)
+	}
+}
+
+func (u *Uploads) serveAttachment(w http.ResponseWriter, r *http.Request, id, variant, cacheControl string) {
+	ctx := r.Context()
+	att, err := u.repo.GetByID(ctx, id)
+	if err != nil {
+		slog.ErrorContext(ctx, "attachment: error loading row", "attachment_id", id, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if att == nil {
+		http.Error(w, "attachment not found", http.StatusNotFound)
+		return
+	}
+
+	format := att.Format
+	if variant == media.VariantThumb {
+		format = att.ThumbFormat
+	}
+	contentType := media.Format(format).MIME()
+	if att.Encrypted {
+		contentType = octetStream
+	}
+	body, modTime, err := u.store.Open(att.Hash, variant)
+	if errors.Is(err, media.ErrNotFound) {
+		slog.ErrorContext(ctx, "attachment row without a blob", "attachment_id", att.ID, "hash", att.Hash, "variant", variant)
+		http.Error(w, "attachment not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "attachment: error opening blob", "attachment_id", att.ID, "variant", variant, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Cache-Control", cacheControl)
+	http.ServeContent(w, r, "", modTime, body)
 }
 
 func (u *Uploads) ingest(w http.ResponseWriter, r *http.Request, serverID, userID string) (*attachment.Attachment, bool) {

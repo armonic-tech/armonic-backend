@@ -223,8 +223,12 @@ func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Reposit
 
 	// public
 	router.Public("/ws", wsHandler.HandleWebSocket) // WS authenticates via its first "auth" message, not a header
-	router.Public("/info", handlers.InfoHandler(cfg, memberCounter, defaultServerID, claimed))
+	router.Public("/info", handlers.InfoHandler(cfg, memberCounter, repos.Servers(), defaultServerID, claimed))
 	router.Public("GET /swagger/", httpSwagger.WrapHandler)
+	// The logo is public like the name and description on /info: a client's
+	// instance rail paints a tile before (and without) being a member.
+	router.Public("GET /server/{id}/logo", uploads.ServeLogo(repos.Servers(), media.VariantFull))
+	router.Public("GET /server/{id}/logo/thumb", uploads.ServeLogo(repos.Servers(), media.VariantThumb))
 
 	if cfg.DebugPprof { // Debug only, off by default
 		router.Public("GET /debug/pprof/", pprof.Index)
@@ -276,6 +280,8 @@ func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Reposit
 	router.MemberByAttachment("GET /attachment/{id}", uploads.Serve(media.VariantFull))
 	router.MemberByAttachment("GET /attachment/{id}/thumb", uploads.Serve(media.VariantThumb))
 	// JWT + ownership
+	router.Owner("POST /server/{id}/logo", uploads.ServerLogo(repos.Servers(), appState))
+	router.Owner("DELETE /server/{id}/logo", uploads.DeleteServerLogo(repos.Servers(), appState))
 	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
 
 	stats := func() []any {

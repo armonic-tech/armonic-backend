@@ -98,6 +98,42 @@ func TestServerRepo_Create(t *testing.T) {
 	require.Equal(t, "owner-id", infos[0].OwnerID)
 }
 
+func TestServerRepo_LogoRoundTrip(t *testing.T) {
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewServerRepo(tx)
+	ctx := context.Background()
+	require.NoError(t, repo.Create(ctx, "logo-srv", "example", "owner-id"))
+
+	logo, err := repo.LogoID(ctx, "logo-srv")
+	require.NoError(t, err)
+	require.Empty(t, logo)
+
+	require.NoError(t, repo.SetLogo(ctx, "logo-srv", "att-logo"))
+
+	logo, err = repo.LogoID(ctx, "logo-srv")
+	require.NoError(t, err)
+	require.Equal(t, "att-logo", logo)
+
+	infos, err := repo.GetByIDs(ctx, []string{"logo-srv"})
+	require.NoError(t, err)
+	require.Len(t, infos, 1)
+	require.Equal(t, "att-logo", infos[0].LogoID)
+
+	require.NoError(t, repo.ClearLogo(ctx, "logo-srv"))
+
+	logo, err = repo.LogoID(ctx, "logo-srv")
+	require.NoError(t, err)
+	require.Empty(t, logo)
+
+	// COALESCE on the read, so a NULL column still scans into the DTO.
+	infos, err = repo.GetByIDs(ctx, []string{"logo-srv"})
+	require.NoError(t, err)
+	require.Empty(t, infos[0].LogoID)
+}
+
 func TestMessageRepo_Create(t *testing.T) {
 	tx, err := testDB.Begin()
 	require.NoError(t, err)
