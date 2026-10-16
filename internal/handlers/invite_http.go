@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -22,11 +24,23 @@ type InviteLookup interface {
 // InviteCreator mints a single-use invite token for a server.
 type InviteCreator interface {
 	Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
+	CreateBot(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
+}
+
+// CreateInviteRequest is optional: an empty body mints a regular invite.
+type CreateInviteRequest struct {
+	Bot bool `json:"bot"`
 }
 
 type InviteCreatedResponse struct {
 	InviteToken string `json:"inviteToken"`
 	URL         string `json:"url"`
+	Bot         bool   `json:"bot,omitempty"`
+}
+
+// BotMarker flags the account a bot invite created.
+type BotMarker interface {
+	SetBot(ctx context.Context, id string) error
 }
 
 // CreateInvite mints a single-use invite for server {id}. Replaces the old
@@ -35,10 +49,12 @@ type InviteCreatedResponse struct {
 // authenticated caller (UserID(ctx)).
 //
 // @Summary      Create invite
-// @Description  Owner-only. Mint a single-use invite link for a server.
+// @Description  Owner-only. Mint a single-use invite link for a server. With {"bot": true} the account it creates is a bot (docs/ai/bots.md).
 // @Tags         Invite
+// @Accept       json
 // @Produce      json
 // @Param        id path string true "Server ID"
+// @Param        body body CreateInviteRequest false "Invite kind"
 // @Success      201 {object} InviteCreatedResponse
 // @Failure      401 {string} string "unauthorized"
 // @Failure      403 {string} string "forbidden"
@@ -54,7 +70,19 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 			return
 		}
 
-		token, err := invites.Create(ctx, serverID, userID, inviteTTL)
+		var req CreateInviteRequest
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+		}
+
+		create := invites.Create
+		if req.Bot {
+			create = invites.CreateBot
+		}
+		token, err := create(ctx, serverID, userID, inviteTTL)
 		if err != nil {
 			slog.ErrorContext(ctx, "create-invite error", logger.Server(serverID), "error", err)
 			http.Error(w, "error creating invite", http.StatusInternalServerError)
@@ -63,10 +91,11 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		slog.InfoContext(ctx, "invite created", logger.Server(serverID))
+		slog.InfoContext(ctx, "invite created", logger.Server(serverID), "bot", req.Bot)
 		json.NewEncoder(w).Encode(InviteCreatedResponse{
 			InviteToken: token,
 			URL:         fmt.Sprintf("%s?invite=%s", baseURL, token),
+			Bot:         req.Bot,
 		})
 	}
 }
@@ -93,7 +122,7 @@ func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {
 	}
 }
 
-func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members MemberAdder, claimed func() bool, verifier PowChecker) http.HandlerFunc {
+func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members MemberAdder, bots BotMarker, claimed func() bool, verifier PowChecker) http.HandlerFunc {
 	type request struct {
 		Token    string `json:"token"`
 		Username string `json:"username"`
@@ -146,6 +175,14 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 			return
 		}
 
+		if inv.Bot {
+			if err := bots.SetBot(r.Context(), claims.Sub); err != nil {
+				slog.ErrorContext(r.Context(), "invite-signup error flagging bot", logger.User(claims.Sub), "error", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		if err := members.Add(r.Context(), claims.Sub, inv.ServerID); err != nil {
 			slog.ErrorContext(r.Context(), "invite-signup membership error", logger.User(claims.Sub), logger.Server(inv.ServerID), "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -155,7 +192,7 @@ func InviteSignupHandler(invites InviteRepo, auth RegisterAuthenticator, members
 			slog.ErrorContext(r.Context(), "invite-signup error marking invite used", logger.User(claims.Sub), logger.Server(inv.ServerID), "error", err)
 		}
 
-		slog.InfoContext(r.Context(), "user joined via invite signup", logger.User(claims.Sub), logger.Server(inv.ServerID), "username", req.Username)
+		slog.InfoContext(r.Context(), "user joined via invite signup", logger.User(claims.Sub), logger.Server(inv.ServerID), "username", req.Username, "bot", inv.Bot)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"token": token})

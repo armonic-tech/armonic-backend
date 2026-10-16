@@ -551,7 +551,10 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Owner-only. Mint a single-use invite link for a server.",
+                "description": "Owner-only. Mint a single-use invite link for a server. With {\"bot\": true} the account it creates is a bot (docs/ai/bots.md).",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -566,6 +569,14 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Invite kind",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CreateInviteRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1175,6 +1186,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "isBot": {
+                    "type": "boolean"
+                },
                 "linked": {
                     "description": "Linked is false while the member's peer connection is still being set\nup: present in the channel, but no audio can flow either way yet.",
                     "type": "boolean"
@@ -1229,6 +1243,14 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.CreateInviteRequest": {
+            "type": "object",
+            "properties": {
+                "bot": {
+                    "type": "boolean"
+                }
+            }
+        },
         "handlers.GroupStateResponse": {
             "type": "object",
             "properties": {
@@ -1268,6 +1290,9 @@ const docTemplate = `{
         "handlers.InviteCreatedResponse": {
             "type": "object",
             "properties": {
+                "bot": {
+                    "type": "boolean"
+                },
                 "inviteToken": {
                     "type": "string"
                 },
@@ -1595,6 +1620,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "isBot": {
+                    "type": "boolean"
                 },
                 "isOwner": {
                     "type": "boolean"

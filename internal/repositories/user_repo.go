@@ -42,6 +42,21 @@ func (r *UserRepo) GetProfile(ctx context.Context, id string) (displayName, avat
 	return displayName, avatar.String, err
 }
 
+func (r *UserRepo) SetBot(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET is_bot = TRUE WHERE id = $1`, id)
+	return err
+}
+
+// IsBot reports false for an unknown user.
+func (r *UserRepo) IsBot(ctx context.Context, id string) (bool, error) {
+	var bot bool
+	err := r.db.QueryRowContext(ctx, `SELECT is_bot FROM users WHERE id = $1`, id).Scan(&bot)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return bot, err
+}
+
 func (r *UserRepo) SetAvatar(ctx context.Context, id, attachmentID string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE users SET avatar_id = $1 WHERE id = $2`, attachmentID, id)
 	return err

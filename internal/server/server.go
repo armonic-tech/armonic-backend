@@ -251,7 +251,7 @@ func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Reposit
 		perIP(loginPerIPPerMin, loginBurst, ipKey),
 	))
 	router.Public("POST /invite/signup", chain(
-		handlers.InviteSignupHandler(repos.Invites(), authSvc, repos.Memberships(), claimed, powMgr),
+		handlers.InviteSignupHandler(repos.Invites(), authSvc, repos.Memberships(), repos.Users(), claimed, powMgr),
 		perIP(signupPerIPPerMin, signupBurst, ipKey),
 	))
 	router.Public("GET /invite/status", chain(handlers.InviteStatusHandler(repos.Invites()),

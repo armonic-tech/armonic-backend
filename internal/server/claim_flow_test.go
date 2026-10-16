@@ -395,6 +395,84 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		require.Equal(t, "offer", readFrame(t, conn)["type"])
 	})
 
+	t.Run("a bot joins voice only where the owner summoned it", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/server/"+defaultServerID+"/invite", strings.NewReader(`{"bot":true}`))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		var inv struct {
+			InviteToken string `json:"inviteToken"`
+			Bot         bool   `json:"bot"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&inv))
+		resp.Body.Close()
+		require.True(t, inv.Bot)
+
+		var signup struct {
+			Token string `json:"token"`
+		}
+		require.Equal(t, http.StatusOK, postJSON(t, client, ts.URL+"/invite/signup", map[string]string{
+			"token": inv.InviteToken, "username": "armonic-bot", "password": "bot-password-123",
+		}, &signup))
+		botToken := signup.Token
+
+		var me struct {
+			ID string `json:"id"`
+		}
+		require.Equal(t, http.StatusOK, getJSONAuth(t, client, ts.URL+"/me", botToken, &me))
+		var members []struct {
+			ID    string `json:"id"`
+			IsBot bool   `json:"isBot"`
+		}
+		require.Equal(t, http.StatusOK, getJSONAuth(t, client, ts.URL+"/server/"+defaultServerID+"/members", adminToken, &members))
+		bots := 0
+		for _, m := range members {
+			if m.IsBot {
+				bots++
+				require.Equal(t, me.ID, m.ID)
+			}
+		}
+		require.Equal(t, 1, bots)
+
+		var channels []channel.ChannelInfo
+		require.Equal(t, http.StatusOK, getJSONAuth(t, client, ts.URL+"/server/"+defaultServerID, adminToken, &channels))
+		var voiceID string
+		for _, c := range channels {
+			if c.Type == "voice" {
+				voiceID = c.ID
+			}
+		}
+
+		bot, botOK := dialWSFrame(t, ts.URL, botToken)
+		require.Equal(t, true, botOK["isBot"])
+		join := map[string]string{"type": "join-voice", "serverId": defaultServerID, "channelId": voiceID}
+
+		require.NoError(t, bot.WriteJSON(join))
+		require.Equal(t, "could not join voice", readFrame(t, bot)["message"], "unsummoned bot joined voice")
+
+		summon := map[string]string{"type": "summon-bot", "serverId": defaultServerID, "channelId": voiceID, "targetUserId": me.ID}
+		member := dialWS(t, ts.URL, memberToken)
+		require.NoError(t, member.WriteJSON(summon))
+		require.Equal(t, "unauthorized", readFrame(t, member)["message"])
+
+		admin := dialWS(t, ts.URL, adminToken)
+		require.NoError(t, admin.WriteJSON(summon))
+		frame := readFrame(t, bot)
+		require.Equal(t, "bot-summon", frame["type"])
+		require.Equal(t, voiceID, frame["channelId"])
+
+		require.NoError(t, bot.WriteJSON(join))
+		require.Equal(t, "offer", readFrame(t, bot)["type"])
+
+		require.NoError(t, admin.WriteJSON(map[string]string{"type": "dismiss-bot", "serverId": defaultServerID, "targetUserId": me.ID}))
+		require.Equal(t, "bot-dismiss", readFrame(t, bot)["type"])
+		require.Equal(t, "kicked-voice", readFrame(t, bot)["type"])
+
+		require.NoError(t, bot.WriteJSON(join))
+		require.Equal(t, "could not join voice", readFrame(t, bot)["message"], "dismissed bot rejoined voice")
+	})
+
 	t.Run("the same invite can't be redeemed twice", func(t *testing.T) {
 		status := postJSON(t, client, ts.URL+"/invite/signup", map[string]string{
 			"token":    inviteToken,
@@ -425,12 +503,20 @@ func getJSONAuth(t *testing.T, client *http.Client, url, token string, out any) 
 // dialWS opens /ws and completes the auth handshake.
 func dialWS(t *testing.T, baseURL, token string) *websocket.Conn {
 	t.Helper()
+	conn, _ := dialWSFrame(t, baseURL, token)
+	return conn
+}
+
+// dialWSFrame is dialWS that also returns the auth-ok frame.
+func dialWSFrame(t *testing.T, baseURL, token string) (*websocket.Conn, map[string]any) {
+	t.Helper()
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(baseURL, "http")+"/ws", nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	require.NoError(t, conn.WriteJSON(map[string]string{"type": "auth", "token": token}))
-	require.Equal(t, "auth-ok", readFrame(t, conn)["type"])
-	return conn
+	ok := readFrame(t, conn)
+	require.Equal(t, "auth-ok", ok["type"])
+	return conn, ok
 }
 
 // readFrame returns the next frame that is not an unsolicited push.

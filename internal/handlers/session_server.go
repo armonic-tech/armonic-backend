@@ -9,7 +9,9 @@ import (
 
 func (s *connSession) handleJoinServer(msg signal.Message) {
 	inv, err := s.h.inviteRepo.Get(s.ctx, msg.InviteToken)
-	if err != nil || inv == nil {
+	// A bot invite only creates a bot account through /invite/signup; it
+	// must not turn an existing human account into a member through here.
+	if err != nil || inv == nil || inv.Bot {
 		s.reject(msg.Type, "invalid invite", err)
 		return
 	}

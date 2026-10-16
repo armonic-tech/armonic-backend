@@ -19,8 +19,11 @@ type Server struct {
 	// socket stays the same for the whole connection.
 	ConnectedUsers map[string]map[user.Socket]struct{}
 	voice          map[string]VoiceSession
-	mu             sync.RWMutex
-	joinMu         sync.Mutex
+	// botID → the voice channel the owner summoned it to. A bot account may
+	// join voice only there (docs/ai/bots.md).
+	summons map[string]string
+	mu      sync.RWMutex
+	joinMu  sync.Mutex
 }
 
 // VoiceSession is the one call a user is allowed to be in. Channel and Media
@@ -40,6 +43,7 @@ func NewServer(id string) *Server {
 		VoiceChannels:  make(map[string]*channel.VoiceChannel),
 		ConnectedUsers: make(map[string]map[user.Socket]struct{}),
 		voice:          make(map[string]VoiceSession),
+		summons:        make(map[string]string),
 	}
 }
 
@@ -232,4 +236,53 @@ func (s *Server) AddVoiceChannel(id string) *channel.VoiceChannel {
 	ch := channel.NewVoiceChannel(id, s.ID)
 	s.VoiceChannels[id] = ch
 	return ch
+}
+
+// SendToUser pushes msg to every live socket of userID and reports how many
+// it reached; 0 means the user is offline.
+func (s *Server) SendToUser(userID string, msg any) int {
+	s.mu.RLock()
+	targets := make([]user.Socket, 0, len(s.ConnectedUsers[userID]))
+	for sock := range s.ConnectedUsers[userID] {
+		targets = append(targets, sock)
+	}
+	s.mu.RUnlock()
+
+	sent := 0
+	for _, sock := range targets {
+		if err := sock.SendJSON(msg); err != nil {
+			slog.Debug("send to user failed", logger.Server(s.ID), logger.User(userID), "error", err)
+			continue
+		}
+		sent++
+	}
+	return sent
+}
+
+// VoiceChannelOf is the channel userID's voice session is in, "" if none.
+func (s *Server) VoiceChannelOf(userID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.voice[userID].ChannelID
+}
+
+func (s *Server) SummonBot(botID, channelID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.summons[botID] = channelID
+}
+
+// DismissBot clears the summon and returns the channel it pointed at.
+func (s *Server) DismissBot(botID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := s.summons[botID]
+	delete(s.summons, botID)
+	return ch
+}
+
+func (s *Server) SummonedChannel(botID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.summons[botID]
 }

@@ -18,11 +18,20 @@ func NewInviteRepo(db DBTX) *InviteRepo {
 }
 
 func (r *InviteRepo) Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error) {
+	return r.create(ctx, serverID, createdBy, expiresIn, false)
+}
+
+// CreateBot mints an invite whose signup creates a bot account.
+func (r *InviteRepo) CreateBot(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error) {
+	return r.create(ctx, serverID, createdBy, expiresIn, true)
+}
+
+func (r *InviteRepo) create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration, bot bool) (string, error) {
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(expiresIn).Unix()
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO invites (token, server_id, created_by, expires_at) VALUES ($1, $2, $3, $4)`,
-		token, serverID, createdBy, expiresAt,
+		`INSERT INTO invites (token, server_id, created_by, expires_at, bot) VALUES ($1, $2, $3, $4, $5)`,
+		token, serverID, createdBy, expiresAt, bot,
 	)
 	return token, err
 }
@@ -31,9 +40,9 @@ func (r *InviteRepo) Get(ctx context.Context, token string) (*invite.Invite, err
 	var inv invite.Invite
 	var expiresAt int64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT token, server_id, created_by, expires_at FROM invites WHERE token = $1 AND used_at IS NULL`,
+		`SELECT token, server_id, created_by, expires_at, bot FROM invites WHERE token = $1 AND used_at IS NULL`,
 		token,
-	).Scan(&inv.Token, &inv.ServerID, &inv.CreatedBy, &expiresAt)
+	).Scan(&inv.Token, &inv.ServerID, &inv.CreatedBy, &expiresAt, &inv.Bot)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

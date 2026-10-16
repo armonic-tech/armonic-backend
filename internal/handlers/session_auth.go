@@ -33,7 +33,12 @@ func (s *connSession) handleAuth(msg signal.Message) error {
 		slog.ErrorContext(s.ctx, "auth: error loading profile", "error", err)
 	}
 
-	s.user = &user.User{ID: claims.Sub, DisplayName: displayName, AvatarID: avatarID, Signaling: s.conn}
+	isBot, err := s.h.userRepo.IsBot(s.ctx, claims.Sub)
+	if err != nil {
+		slog.ErrorContext(s.ctx, "auth: error loading bot flag", "error", err)
+	}
+
+	s.user = &user.User{ID: claims.Sub, DisplayName: displayName, AvatarID: avatarID, Signaling: s.conn, IsBot: isBot}
 
 	serverIDs, err := s.h.membershipRepo.GetByUser(s.ctx, claims.Sub)
 	if err != nil {
@@ -43,7 +48,11 @@ func (s *connSession) handleAuth(msg signal.Message) error {
 		s.h.app.GetOrCreateServer(sid).AddConnectedUser(s.user)
 	}
 
-	slog.InfoContext(s.ctx, "user authenticated", "servers", len(serverIDs))
-	s.send(map[string]any{"type": "auth-ok", "userId": claims.Sub, "displayName": displayName, "avatarId": avatarID})
+	slog.InfoContext(s.ctx, "user authenticated", "servers", len(serverIDs), "bot", isBot)
+	ok := map[string]any{"type": "auth-ok", "userId": claims.Sub, "displayName": displayName, "avatarId": avatarID}
+	if isBot {
+		ok["isBot"] = true
+	}
+	s.send(ok)
 	return nil
 }

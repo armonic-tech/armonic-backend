@@ -7,4 +7,6 @@ type Invite struct {
 	ServerID  string    `json:"serverId"`
 	CreatedBy string    `json:"createdBy"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// Bot invites create a bot account: see docs/ai/bots.md.
+	Bot bool `json:"bot,omitempty"`
 }

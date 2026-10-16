@@ -67,7 +67,7 @@ func (r *MembershipRepo) IsMemberByAttachment(ctx context.Context, userID, attac
 
 func (r *MembershipRepo) GetMembers(ctx context.Context, serverID string) ([]server.MemberInfo, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT u.id, u.display_name, COALESCE(u.avatar_id, ''), COALESCE(s.owner_id, '') = u.id
+		`SELECT u.id, u.display_name, COALESCE(u.avatar_id, ''), COALESCE(s.owner_id, '') = u.id, u.is_bot
 		 FROM memberships m
 		 JOIN users u ON u.id = m.user_id
 		 JOIN servers s ON s.id = m.server_id
@@ -83,7 +83,7 @@ func (r *MembershipRepo) GetMembers(ctx context.Context, serverID string) ([]ser
 	var members []server.MemberInfo
 	for rows.Next() {
 		var m server.MemberInfo
-		if err := rows.Scan(&m.ID, &m.DisplayName, &m.AvatarID, &m.IsOwner); err != nil {
+		if err := rows.Scan(&m.ID, &m.DisplayName, &m.AvatarID, &m.IsOwner, &m.IsBot); err != nil {
 			return nil, err
 		}
 		members = append(members, m)

@@ -396,3 +396,46 @@ func TestInviteRepo(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, used)
 }
+
+func TestInviteRepo_BotInvite(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewInviteRepo(tx)
+	plain, err := repo.Create(ctx, "server-1", "user-1", time.Hour)
+	require.NoError(t, err)
+	bot, err := repo.CreateBot(ctx, "server-1", "user-1", time.Hour)
+	require.NoError(t, err)
+
+	inv, err := repo.Get(ctx, plain)
+	require.NoError(t, err)
+	require.False(t, inv.Bot)
+	inv, err = repo.Get(ctx, bot)
+	require.NoError(t, err)
+	require.True(t, inv.Bot)
+}
+
+func TestUserRepo_BotFlag(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	users := NewUserRepo(tx)
+	require.NoError(t, users.Upsert(ctx, "user-bot", "Bot"))
+
+	isBot, err := users.IsBot(ctx, "user-bot")
+	require.NoError(t, err)
+	require.False(t, isBot)
+
+	require.NoError(t, users.SetBot(ctx, "user-bot"))
+	isBot, err = users.IsBot(ctx, "user-bot")
+	require.NoError(t, err)
+	require.True(t, isBot)
+
+	isBot, err = users.IsBot(ctx, "nobody")
+	require.NoError(t, err)
+	require.False(t, isBot)
+}
