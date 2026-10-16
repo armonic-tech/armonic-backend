@@ -24,6 +24,11 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		s.reject(msg.Type, "could not join voice", err, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "stage", stage)
 	}
 
+	if ok, err := s.canJoinVoice(msg.ServerID, msg.ChannelID); err != nil || !ok {
+		fail("authorization", err)
+		return
+	}
+
 	rtcConn, err := rtc.NewWebRTCConn()
 	if err != nil {
 		fail("peer connection", err)
@@ -131,6 +136,21 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 	ch.Broadcast(u.ID, voiceLink(u.ID, msg.ChannelID, u.IsLinked()))
 	slog.InfoContext(vctx, "user joined voice channel", "offer", channel.SDPSummary(offer.SDP),
 		"muted", u.IsMuted(), "deafened", u.IsDeafened())
+}
+
+// canJoinVoice requires membership of serverID and a live voice channel of
+// that server: the ids come from the client, and GetOrCreateVoiceChannel
+// would otherwise build presence for any channel id it is handed.
+func (s *connSession) canJoinVoice(serverID, channelID string) (bool, error) {
+	ok, err := s.h.membershipRepo.IsMember(s.ctx, s.user.ID, serverID)
+	if err != nil || !ok {
+		return false, err
+	}
+	ch, err := s.h.channelRepo.GetByID(s.ctx, channelID)
+	if err != nil || ch == nil {
+		return false, err
+	}
+	return ch.ServerID == serverID && ch.Type == "voice", nil
 }
 
 // voiceLink tells a channel's other members whether userID's peer connection

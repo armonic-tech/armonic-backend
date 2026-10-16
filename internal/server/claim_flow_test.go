@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/armonic-tech/armonic-backend/config"
+	"github.com/armonic-tech/armonic-backend/internal/models/channel"
 	repo "github.com/armonic-tech/armonic-backend/internal/repositories"
 	db "github.com/armonic-tech/armonic-backend/migrations"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
@@ -362,6 +364,37 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		require.Empty(t, info.LogoID)
 	})
 
+	t.Run("join-voice requires membership and a voice channel of that server", func(t *testing.T) {
+		var channels []channel.ChannelInfo
+		require.Equal(t, http.StatusOK, getJSONAuth(t, client, ts.URL+"/server/"+defaultServerID, memberToken, &channels))
+		var textID, voiceID string
+		for _, c := range channels {
+			switch c.Type {
+			case "text":
+				textID = c.ID
+			case "voice":
+				voiceID = c.ID
+			}
+		}
+		require.NotEmpty(t, textID)
+		require.NotEmpty(t, voiceID)
+
+		conn := dialWS(t, ts.URL, memberToken)
+		for _, bad := range []map[string]string{
+			{"serverId": "00000000-0000-0000-0000-000000000000", "channelId": voiceID},
+			{"serverId": defaultServerID, "channelId": textID},
+			{"serverId": defaultServerID, "channelId": "00000000-0000-0000-0000-000000000000"},
+		} {
+			require.NoError(t, conn.WriteJSON(map[string]string{"type": "join-voice", "serverId": bad["serverId"], "channelId": bad["channelId"]}))
+			frame := readFrame(t, conn)
+			require.Equal(t, "error", frame["type"], bad)
+			require.Equal(t, "could not join voice", frame["message"], bad)
+		}
+
+		require.NoError(t, conn.WriteJSON(map[string]string{"type": "join-voice", "serverId": defaultServerID, "channelId": voiceID}))
+		require.Equal(t, "offer", readFrame(t, conn)["type"])
+	})
+
 	t.Run("the same invite can't be redeemed twice", func(t *testing.T) {
 		status := postJSON(t, client, ts.URL+"/invite/signup", map[string]string{
 			"token":    inviteToken,
@@ -373,4 +406,44 @@ func TestClaimAndInviteFlow(t *testing.T) {
 		status = getJSON(t, client, ts.URL+"/invite/status?token="+inviteToken, nil)
 		require.Equal(t, http.StatusGone, status)
 	})
+}
+
+func getJSONAuth(t *testing.T, client *http.Client, url, token string, out any) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	if out != nil && resp.StatusCode == http.StatusOK {
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
+	}
+	return resp.StatusCode
+}
+
+// dialWS opens /ws and completes the auth handshake.
+func dialWS(t *testing.T, baseURL, token string) *websocket.Conn {
+	t.Helper()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(baseURL, "http")+"/ws", nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.NoError(t, conn.WriteJSON(map[string]string{"type": "auth", "token": token}))
+	require.Equal(t, "auth-ok", readFrame(t, conn)["type"])
+	return conn
+}
+
+// readFrame returns the next frame that is not an unsolicited push.
+func readFrame(t *testing.T, conn *websocket.Conn) map[string]any {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	for {
+		var frame map[string]any
+		require.NoError(t, conn.ReadJSON(&frame))
+		switch frame["type"] {
+		case "candidate", "mls-sync", "voice-link":
+			continue
+		}
+		return frame
+	}
 }
