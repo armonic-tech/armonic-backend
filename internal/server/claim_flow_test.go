@@ -471,6 +471,15 @@ func TestClaimAndInviteFlow(t *testing.T) {
 
 		require.NoError(t, bot.WriteJSON(join))
 		require.Equal(t, "could not join voice", readFrame(t, bot)["message"], "dismissed bot rejoined voice")
+
+		require.NoError(t, admin.WriteJSON(summon))
+		require.Equal(t, "bot-summon", readFrame(t, bot)["type"])
+		require.NoError(t, bot.WriteJSON(join))
+		require.Equal(t, "offer", readFrame(t, bot)["type"])
+		require.NoError(t, admin.WriteJSON(map[string]string{"type": "kick-voice", "serverId": defaultServerID, "channelId": voiceID, "targetUserId": me.ID}))
+		require.Equal(t, "kicked-voice", readFrame(t, bot)["type"])
+		require.NoError(t, bot.WriteJSON(join))
+		require.Equal(t, "could not join voice", readFrame(t, bot)["message"], "kicked bot rejoined voice")
 	})
 
 	t.Run("the same invite can't be redeemed twice", func(t *testing.T) {

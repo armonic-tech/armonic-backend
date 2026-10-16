@@ -247,6 +247,9 @@ func (s *connSession) handleKickVoice(msg signal.Message) {
 		return
 	}
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
+	// Kicking a bot out of a call also revokes its summon (no-op for humans),
+	// or it could rejoin the call it was just kicked from.
+	srv.DismissBot(msg.TargetUserID)
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
 	kicked := ch.KickUser(msg.TargetUserID)
 	slog.InfoContext(s.ctx, "user kicked from voice", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "was_present", kicked)
