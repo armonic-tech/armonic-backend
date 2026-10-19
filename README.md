@@ -61,7 +61,7 @@ DATABASE_URL=postgres://armonic:armonic@localhost:5432/armonic?sslmode=disable g
 
 ## Configuration
 
-Configuration is read from environment variables (a local `.env` file is auto-loaded) plus the instance-wide claim password in `config.json`.
+Configuration is read from environment variables (a local `.env` file is auto-loaded) plus the instance-wide claim password, from `CLAIM_PASSWORD` or `config.json`.
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -70,7 +70,8 @@ Configuration is read from environment variables (a local `.env` file is auto-lo
 | `PORT` | `8080` | HTTP listen port |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `LOG_FILE` | *(stdout only)* | Absolute path to also append JSON logs |
-| `config.json` → `app.password` | - | Instance claim secret - **required to start** |
+| `CLAIM_PASSWORD` | - | Instance claim secret; when set, `config.json` is not read |
+| `config.json` → `app.password` | - | Claim secret when `CLAIM_PASSWORD` is unset - one of the two is **required to start** |
 
 ## How it works
 

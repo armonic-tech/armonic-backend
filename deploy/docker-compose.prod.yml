@@ -33,6 +33,7 @@ services:
     environment:
       DATABASE_URL: postgres://armonic:${POSTGRES_PASSWORD}@localhost:5432/armonic?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      CLAIM_PASSWORD: ${CLAIM_PASSWORD:?set CLAIM_PASSWORD in .env}
       PORT: "8080"
       LOG_LEVEL: info
       LOG_FILE: /app/data/armonic.log
@@ -44,7 +45,6 @@ services:
       UPLOAD_DIR: /app/data/uploads
       POW_ENABLED: "false"
     volumes:
-      - ./config.json:/app/config.json:ro
       - uploads:/app/data
     restart: unless-stopped
 

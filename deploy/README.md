@@ -47,23 +47,23 @@ cd armonic/deploy
 ## 4. Configuración
 
 ```bash
-cp .env.example .env                       # dominios, JWT_SECRET, POSTGRES_PASSWORD
+cp .env.example .env                       # dominios y secretos
 cp bot.env.example bot.env                 # claves de xAI y ElevenLabs
 cp bot.config.yaml.example bot.config.yaml # voice_id (invite_url después)
 chmod 600 .env bot.env
 ```
 
-Y `config.json`, con una contraseña de reclamo **nueva** (no la de desarrollo):
+Los secretos de `.env` se generan así. `CLAIM_PASSWORD` es la contraseña de
+reclamo del paso 6: **nueva**, no la de desarrollo; anotala.
 
 ```bash
-cat > config.json <<EOF
-{"app": {"password": "$(openssl rand -base64 18)"}}
-EOF
-chmod 600 config.json
-cat config.json   # anotala: la usás en el paso 6
+openssl rand -hex 32      # JWT_SECRET
+openssl rand -hex 24      # POSTGRES_PASSWORD
+openssl rand -base64 18   # CLAIM_PASSWORD
 ```
 
-`.env`, `bot.env`, `config.json` y `bot.config.yaml` están en `.gitignore`.
+`.env`, `bot.env` y `bot.config.yaml` están en `.gitignore`. No hace falta
+`config.json`: con `CLAIM_PASSWORD` definida, el backend no lo lee.
 
 ## 5. Levantar (sin el bot todavía)
 
@@ -77,8 +77,8 @@ DNS que todavía no propagó o el puerto 80 cerrado.
 
 ## 6. Reclamar la instancia — enseguida
 
-Desde el cliente, agregá `https://<API_DOMAIN>` y reclamala con la contraseña
-de `config.json`. Hasta que la reclames, cualquiera que la conozca podría
+Desde el cliente, agregá `https://<API_DOMAIN>` y reclamala con
+`CLAIM_PASSWORD`. Hasta que la reclames, cualquiera que la conozca podría
 hacerlo antes.
 
 ## 7. El bot

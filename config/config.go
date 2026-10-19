@@ -111,13 +111,16 @@ func Load() (Config, error) {
 		TTL:       time.Duration(getEnvInt64("POW_TTL_SECONDS", 300)) * time.Second,
 	}
 
+	if cfg.ClaimPassword = os.Getenv("CLAIM_PASSWORD"); cfg.ClaimPassword != "" {
+		return cfg, nil
+	}
 	configPath := getEnv("CONFIG_FILE", "config.json")
 	fc, err := loadFileConfig(configPath)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("%w (or set CLAIM_PASSWORD)", err)
 	}
 	if fc.App.Password == "" {
-		return Config{}, fmt.Errorf("%s: app.password is required to claim the server", configPath)
+		return Config{}, fmt.Errorf("%s: app.password is required to claim the server (or set CLAIM_PASSWORD)", configPath)
 	}
 	cfg.ClaimPassword = fc.App.Password
 
