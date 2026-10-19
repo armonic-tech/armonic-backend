@@ -25,17 +25,20 @@ type InviteLookup interface {
 type InviteCreator interface {
 	Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
 	CreateBot(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
+	CreateMultiUse(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error)
 }
 
 // CreateInviteRequest is optional: an empty body mints a regular invite.
 type CreateInviteRequest struct {
-	Bot bool `json:"bot"`
+	Bot      bool `json:"bot"`
+	MultiUse bool `json:"multiUse"`
 }
 
 type InviteCreatedResponse struct {
 	InviteToken string `json:"inviteToken"`
 	URL         string `json:"url"`
 	Bot         bool   `json:"bot,omitempty"`
+	MultiUse    bool   `json:"multiUse,omitempty"`
 }
 
 // BotMarker flags the account a bot invite created.
@@ -49,7 +52,7 @@ type BotMarker interface {
 // authenticated caller (UserID(ctx)).
 //
 // @Summary      Create invite
-// @Description  Owner-only. Mint a single-use invite link for a server. With {"bot": true} the account it creates is a bot (docs/ai/bots.md).
+// @Description  Owner-only. Mint a single-use invite link for a server. With {"bot": true} the account it creates is a bot (docs/ai/bots.md); with {"multiUse": true} it admits anyone until it expires.
 // @Tags         Invite
 // @Accept       json
 // @Produce      json
@@ -78,9 +81,16 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 			}
 		}
 
+		if req.Bot && req.MultiUse {
+			http.Error(w, "a bot invite cannot be multi-use", http.StatusBadRequest)
+			return
+		}
 		create := invites.Create
-		if req.Bot {
+		switch {
+		case req.Bot:
 			create = invites.CreateBot
+		case req.MultiUse:
+			create = invites.CreateMultiUse
 		}
 		token, err := create(ctx, serverID, userID, inviteTTL)
 		if err != nil {
@@ -91,11 +101,12 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		slog.InfoContext(ctx, "invite created", logger.Server(serverID), "bot", req.Bot)
+		slog.InfoContext(ctx, "invite created", logger.Server(serverID), "bot", req.Bot, "multi_use", req.MultiUse)
 		json.NewEncoder(w).Encode(InviteCreatedResponse{
 			InviteToken: token,
 			URL:         fmt.Sprintf("%s?invite=%s", baseURL, token),
 			Bot:         req.Bot,
+			MultiUse:    req.MultiUse,
 		})
 	}
 }

@@ -9,4 +9,6 @@ type Invite struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 	// Bot invites create a bot account: see docs/ai/bots.md.
 	Bot bool `json:"bot,omitempty"`
+	// MultiUse invites survive redemption until they expire.
+	MultiUse bool `json:"multiUse,omitempty"`
 }

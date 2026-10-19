@@ -417,6 +417,31 @@ func TestInviteRepo_BotInvite(t *testing.T) {
 	require.True(t, inv.Bot)
 }
 
+func TestInviteRepo_MultiUseSurvivesRedemption(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	repo := NewInviteRepo(tx)
+	token, err := repo.CreateMultiUse(ctx, "server-1", "user-1", time.Hour)
+	require.NoError(t, err)
+
+	for range 3 {
+		require.NoError(t, repo.MarkUsed(ctx, token))
+		inv, err := repo.Get(ctx, token)
+		require.NoError(t, err)
+		require.NotNil(t, inv)
+		require.True(t, inv.MultiUse)
+	}
+
+	expired, err := repo.CreateMultiUse(ctx, "server-1", "user-1", -time.Hour)
+	require.NoError(t, err)
+	inv, err := repo.Get(ctx, expired)
+	require.NoError(t, err)
+	require.Nil(t, inv)
+}
+
 func TestUserRepo_BotFlag(t *testing.T) {
 	ctx := context.Background()
 	tx, err := testDB.Begin()
