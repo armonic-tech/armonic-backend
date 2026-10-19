@@ -60,3 +60,15 @@ func TestNoClaimPasswordAnywhereRefusesToStart(t *testing.T) {
 		t.Fatalf("want an error naming CLAIM_PASSWORD, got %v", err)
 	}
 }
+
+func TestPublicBaseURLDropsTheTrailingSlash(t *testing.T) {
+	t.Setenv("CLAIM_PASSWORD", "x")
+	t.Setenv("PUBLIC_BASE_URL", "https://api.example.com/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PublicBaseURL != "https://api.example.com" {
+		t.Fatalf("public base url %q", cfg.PublicBaseURL)
+	}
+}

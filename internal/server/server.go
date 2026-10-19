@@ -282,7 +282,7 @@ func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Reposit
 	// JWT + ownership
 	router.Owner("POST /server/{id}/logo", uploads.ServerLogo(repos.Servers(), appState))
 	router.Owner("DELETE /server/{id}/logo", uploads.DeleteServerLogo(repos.Servers(), appState))
-	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.BaseURL()))
+	router.Owner("POST /server/{id}/invite", handlers.CreateInvite(repos.Invites(), cfg.PublicBaseURL))
 
 	stats := func() []any {
 		servers, connected, voice := appState.Stats()

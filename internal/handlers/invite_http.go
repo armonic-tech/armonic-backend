@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	authpkg "github.com/armonic-tech/armonic-backend/internal/auth"
@@ -63,8 +64,12 @@ type BotMarker interface {
 // @Failure      403 {string} string "forbidden"
 // @Security     BearerAuth
 // @Router       /server/{id}/invite [post]
-func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
+func CreateInvite(invites InviteCreator, publicBaseURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		baseURL := publicBaseURL
+		if baseURL == "" {
+			baseURL = requestBaseURL(r)
+		}
 		ctx := r.Context()
 		serverID := r.PathValue("id")
 		userID, ok := UserID(ctx)
@@ -109,6 +114,30 @@ func CreateInvite(invites InviteCreator, baseURL string) http.HandlerFunc {
 			MultiUse:    req.MultiUse,
 		})
 	}
+}
+
+// requestBaseURL is the address this request arrived on, as the client saw it:
+// the first X-Forwarded-Proto/-Host entry when a proxy set one, else the
+// connection's own scheme and Host. A spoofed header only yields a wrong link
+// for the owner who asked (docs/ai/http-api.md, "Invite flow").
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := firstForwarded(r.Header.Get("X-Forwarded-Proto")); p != "" {
+		scheme = p
+	}
+	host := r.Host
+	if h := firstForwarded(r.Header.Get("X-Forwarded-Host")); h != "" {
+		host = h
+	}
+	return scheme + "://" + host
+}
+
+func firstForwarded(v string) string {
+	first, _, _ := strings.Cut(v, ",")
+	return strings.TrimSpace(first)
 }
 
 func InviteStatusHandler(invites InviteLookup) http.HandlerFunc {

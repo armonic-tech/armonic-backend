@@ -20,6 +20,7 @@ type Config struct {
 	DBPath            string
 	MaxMsgLen         int
 	ClaimPassword     string
+	PublicBaseURL     string
 	AllowedOrigins    []string
 	TrustedProxies    []string
 	Upload            UploadConfig
@@ -89,6 +90,7 @@ func Load() (Config, error) {
 	cfg.RTC.HostIPs = getEnvList("RTC_HOST_IPS")
 	cfg.DebugPprof = getEnvBool("DEBUG_PPROF", false)
 
+	cfg.PublicBaseURL = strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/")
 	cfg.AllowedOrigins = getEnvList("CORS_ALLOWED_ORIGINS")
 	cfg.TrustedProxies = getEnvList("TRUSTED_PROXIES")
 

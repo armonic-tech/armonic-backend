@@ -136,3 +136,39 @@ func TestCreateInvite_RepoError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+func createInviteURL(t *testing.T, publicBaseURL string, edit func(*http.Request)) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/server/"+validUUID+"/invite", nil)
+	req.SetPathValue("id", validUUID)
+	req = req.WithContext(WithUserID(req.Context(), "owner-1"))
+	if edit != nil {
+		edit(req)
+	}
+	rec := httptest.NewRecorder()
+	CreateInvite(&fakeInviteCreator{token: "tok"}, publicBaseURL).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var resp InviteCreatedResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	return resp.URL
+}
+
+func TestCreateInvite_LinkFollowsTheProxy(t *testing.T) {
+	url := createInviteURL(t, "", func(r *http.Request) {
+		r.Header.Set("X-Forwarded-Proto", "https, http")
+		r.Header.Set("X-Forwarded-Host", "api.example.com, internal:8080")
+	})
+	require.Equal(t, "https://api.example.com?invite=tok", url)
+}
+
+func TestCreateInvite_LinkFallsBackToTheConnection(t *testing.T) {
+	url := createInviteURL(t, "", func(r *http.Request) { r.Host = "10.0.0.5:8080" })
+	require.Equal(t, "http://10.0.0.5:8080?invite=tok", url)
+}
+
+func TestCreateInvite_PublicBaseURLWinsOverHeaders(t *testing.T) {
+	url := createInviteURL(t, "https://pinned.example", func(r *http.Request) {
+		r.Header.Set("X-Forwarded-Host", "spoofed.example")
+	})
+	require.Equal(t, "https://pinned.example?invite=tok", url)
+}
