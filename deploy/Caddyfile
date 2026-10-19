@@ -1,0 +1,11 @@
+{$API_DOMAIN} {
+	reverse_proxy localhost:8080
+}
+
+# Web client: uncomment once the Flutter web build is in deploy/web and
+# APP_DOMAIN is set in .env.
+# {$APP_DOMAIN} {
+# 	root * /srv/web
+# 	try_files {path} /index.html
+# 	file_server
+# }

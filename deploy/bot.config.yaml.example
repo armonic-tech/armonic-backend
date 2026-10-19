@@ -1,0 +1,48 @@
+# Copy to bot.config.yaml. Secrets come from bot.env, never from this file.
+# Full reference: armonic-bot/config.example.yaml.
+
+enabled: true
+
+instance:
+  # The bot shares the host network with the backend: it talks to it
+  # directly, not through Caddy.
+  base_url: http://localhost:8080
+  username: armonic-bot
+  password_env: ARMONIC_BOT_PASSWORD
+  # A bot invite minted on THIS instance (server menu > "Crear invitación
+  # para bot"). Only used on the first start, to create the account.
+  invite_url: ""
+  display_name: Armonic Bot
+
+provider:
+  name: grok-elevenlabs
+  grok:
+    model: grok-4.20-0309-non-reasoning
+    api_key_env: XAI_API_KEY
+    max_tokens: 200
+  elevenlabs:
+    voice_id: ""
+    tts_model: eleven_flash_v2_5
+    stt_model: scribe_v2
+    stt_realtime: true
+    language: es
+    api_key_env: ELEVENLABS_API_KEY
+
+prompt_file: prompts/promo.md
+
+limits:
+  max_call: 15m
+  idle_leave: 3m
+  session_idle_close: 1m
+  empty_grace: 5s
+  daily_budget: 30m
+  max_turn: 30s
+
+audio:
+  vad_threshold_dbfs: -45
+  end_of_turn: 700ms
+  barge_in: 600ms
+  min_speech: 150ms
+
+state_file: data/usage.json
+log_level: info

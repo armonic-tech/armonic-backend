@@ -4,3 +4,5 @@ docs
 *.md
 .golangci.yml
 config.json
+.env
+*.env
