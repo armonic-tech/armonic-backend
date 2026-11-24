@@ -310,16 +310,9 @@ func New(ctx context.Context, cfg config.Config, db *sql.DB, repos *repo.Reposit
 // up to shutdownTimeout. Hijacked WebSockets are not tracked by Shutdown and
 // die with the process.
 func (s *Server) Run(ctx context.Context) error {
-	c := cors.New(cors.Options{
-		AllowedOrigins:   s.allowedOrigins,
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-ID"},
-		ExposedHeaders:   []string{"X-Request-ID"},
-		AllowCredentials: len(s.allowedOrigins) > 0,
-	})
 	srv := &http.Server{
 		Addr:     s.addr,
-		Handler:  c.Handler(s.handler),
+		Handler:  withCORS(s.allowedOrigins, s.handler),
 		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 	}
 
@@ -383,4 +376,18 @@ func ensureDefaultServer(ctx context.Context, repos *repo.Repositories, cfg conf
 		return "", err
 	}
 	return id, nil
+}
+
+// withCORS admits the browser client's origins. AllowedMethods must list
+// every method a route is registered with: DELETE was missing, so removing
+// the server logo failed its preflight from the web client while the
+// desktop app, which sends no preflight, worked.
+func withCORS(origins []string, h http.Handler) http.Handler {
+	return cors.New(cors.Options{
+		AllowedOrigins:   origins,
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders:   []string{"X-Request-ID"},
+		AllowCredentials: len(origins) > 0,
+	}).Handler(h)
 }
