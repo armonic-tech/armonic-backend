@@ -75,8 +75,11 @@ func (f *fakeMLS) Welcome(context.Context, string, string) (*mls.Welcome, error)
 func (f *fakeMLS) ConsumeWelcome(context.Context, string, string) error { return nil }
 
 type fakeMLSPresence struct {
-	mu        sync.Mutex
-	online    []string
+	mu     sync.Mutex
+	online []string
+	// devices, when set, replaces online: user → the device each socket
+	// declared. online alone stands for sockets that declared none.
+	devices   map[string][]string
 	broadcast []map[string]any
 }
 
@@ -85,7 +88,16 @@ func (f *fakeMLSPresence) BroadcastToServer(_ string, msg any) {
 	defer f.mu.Unlock()
 	f.broadcast = append(f.broadcast, msg.(map[string]any))
 }
-func (f *fakeMLSPresence) ConnectedUserIDs(string) []string { return f.online }
+func (f *fakeMLSPresence) ConnectedDevices(string) map[string][]string {
+	if f.devices != nil {
+		return f.devices
+	}
+	out := map[string][]string{}
+	for _, id := range f.online {
+		out[id] = []string{""}
+	}
+	return out
+}
 
 type fakeOwners struct{ owner string }
 
@@ -170,6 +182,50 @@ func TestStatePicksTheOwnerAsCoordinatorWhenOnline(t *testing.T) {
 	h.State()(w, r.WithContext(WithUserID(r.Context(), "alice")))
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Equal(t, "alice", got.CoordinatorUserID)
+}
+
+func TestCoordinatorIsAConnectedDeviceThatIsInTheGroup(t *testing.T) {
+	store := newFakeMLS()
+	store.devices["dev-b1"] = "bob"
+	store.state = mls.GroupState{Epoch: 5, Members: []mls.Member{{DeviceID: "dev-a1", UserID: "alice"}, {DeviceID: "dev-b1", UserID: "bob"}}}
+	presence := &fakeMLSPresence{}
+	h := NewMLS(store, fakeMLSMemberships{}, fakeOwners{owner: "alice"}, presence)
+
+	state := func() GroupStateResponse {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/server/s1/mls?deviceId=dev-b1", nil)
+		r.SetPathValue("id", "s1")
+		w := httptest.NewRecorder()
+		h.State()(w, r.WithContext(WithUserID(r.Context(), "bob")))
+		require.Equal(t, http.StatusOK, w.Code)
+		var got GroupStateResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+		return got
+	}
+
+	// The owner is online only from a browser that never joined the group:
+	// naming her would leave nobody able to commit. Bob's device can.
+	presence.devices = map[string][]string{"alice": {"dev-a2"}, "bob": {"dev-b1"}}
+	got := state()
+	require.Equal(t, "bob", got.CoordinatorUserID)
+	require.Equal(t, "dev-b1", got.CoordinatorDeviceID)
+
+	// Once her group device connects too, the owner wins again, pinned to it.
+	presence.devices = map[string][]string{"alice": {"dev-a2", "dev-a1"}, "bob": {"dev-b1"}}
+	got = state()
+	require.Equal(t, "alice", got.CoordinatorUserID)
+	require.Equal(t, "dev-a1", got.CoordinatorDeviceID)
+
+	// A device id claimed by the wrong account does not count.
+	presence.devices = map[string][]string{"carol": {"dev-a1"}}
+	got = state()
+	require.Empty(t, got.CoordinatorUserID)
+
+	// No member device online at all: nobody, rather than a user who cannot commit.
+	presence.devices = map[string][]string{"alice": {"dev-a2"}, "dave": {"dev-d1"}}
+	got = state()
+	require.Empty(t, got.CoordinatorUserID)
+	require.Empty(t, got.CoordinatorDeviceID)
 }
 
 func TestCommitBroadcastsAndMapsRepoErrors(t *testing.T) {

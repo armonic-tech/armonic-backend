@@ -14,7 +14,7 @@ type User struct {
 	Media          RTCConn
 	VoiceChannelID string
 	ServerID       string
-	IsBot          bool
+	DeviceID       string
 
 	muted    atomic.Bool
 	deafened atomic.Bool

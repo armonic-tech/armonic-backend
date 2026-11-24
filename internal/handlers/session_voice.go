@@ -28,10 +28,6 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		fail("authorization", err)
 		return
 	}
-	if s.user.IsBot && s.h.app.GetOrCreateServer(msg.ServerID).SummonedChannel(s.user.ID) != msg.ChannelID {
-		fail("not summoned", nil)
-		return
-	}
 
 	rtcConn, err := rtc.NewWebRTCConn()
 	if err != nil {
@@ -63,7 +59,7 @@ func (s *connSession) handleJoinVoice(msg signal.Message) {
 		Media:          rtcConn,
 		VoiceChannelID: msg.ChannelID,
 		ServerID:       msg.ServerID,
-		IsBot:          s.user.IsBot,
+		DeviceID:       s.user.DeviceID,
 	}
 	u.SetVoiceState(s.user.IsMuted(), s.user.IsDeafened())
 
@@ -247,9 +243,6 @@ func (s *connSession) handleKickVoice(msg signal.Message) {
 		return
 	}
 	srv := s.h.app.GetOrCreateServer(msg.ServerID)
-	// Kicking a bot out of a call also revokes its summon (no-op for humans),
-	// or it could rejoin the call it was just kicked from.
-	srv.DismissBot(msg.TargetUserID)
 	ch := srv.GetOrCreateVoiceChannel(msg.ChannelID)
 	kicked := ch.KickUser(msg.TargetUserID)
 	slog.InfoContext(s.ctx, "user kicked from voice", "target_user_id", msg.TargetUserID, logger.Server(msg.ServerID), logger.Channel(msg.ChannelID), "was_present", kicked)
@@ -300,11 +293,6 @@ func (s *connSession) leaveVoice() {
 func (s *connSession) handleLeaveVoice() {
 	if s.user.VoiceChannelID == "" {
 		slog.DebugContext(s.ctx, "leave-voice outside a voice channel")
-	}
-	// A bot leaving on its own (idle, budget, empty channel) gives the
-	// summon back: it must not be able to rejoin without a new one.
-	if s.user.IsBot && s.user.ServerID != "" {
-		s.h.app.GetOrCreateServer(s.user.ServerID).DismissBot(s.user.ID)
 	}
 	s.leaveVoice()
 }

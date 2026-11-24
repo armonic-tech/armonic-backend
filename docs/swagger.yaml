@@ -47,8 +47,6 @@ definitions:
         type: string
       id:
         type: string
-      isBot:
-        type: boolean
       linked:
         description: |-
           Linked is false while the member's peer connection is still being set
@@ -88,11 +86,17 @@ definitions:
     type: object
   handlers.CreateInviteRequest:
     properties:
-      bot:
+      multiUse:
         type: boolean
     type: object
   handlers.GroupStateResponse:
     properties:
+      coordinatorDeviceId:
+        description: |-
+          Which of the coordinator's devices: one that is connected and in the
+          group. Absent when any of them will do (no group yet, or a client that
+          did not declare its device).
+        type: string
       coordinatorUserId:
         description: |-
           The connected member expected to commit pending changes: the owner when
@@ -119,10 +123,10 @@ definitions:
     type: object
   handlers.InviteCreatedResponse:
     properties:
-      bot:
-        type: boolean
       inviteToken:
         type: string
+      multiUse:
+        type: boolean
       url:
         type: string
     type: object
@@ -337,8 +341,6 @@ definitions:
         type: string
       id:
         type: string
-      isBot:
-        type: boolean
       isOwner:
         type: boolean
       online:
@@ -710,8 +712,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Owner-only. Mint a single-use invite link for a server. With {"bot":
-        true} the account it creates is a bot (docs/ai/bots.md).'
+      description: 'Owner-only. Mint a single-use invite link for a server. With {"multiUse":
+        true} it admits anyone until it expires.'
       parameters:
       - description: Server ID
         in: path

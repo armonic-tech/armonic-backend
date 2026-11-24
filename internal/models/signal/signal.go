@@ -11,6 +11,9 @@ type Message struct {
 	// auth
 	Token string `json:"token,omitempty"`
 	Name  string `json:"name,omitempty"`
+	// the connection's MLS device, so the delivery service can pick a
+	// coordinator that is actually in the group (docs/ai/e2ee.md)
+	DeviceID string `json:"deviceId,omitempty"`
 
 	// server / channel scoping
 	ServerID  string `json:"serverId,omitempty"`

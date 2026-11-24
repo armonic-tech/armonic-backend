@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -45,7 +46,7 @@ type OwnerLookup interface {
 // of the delivery service.
 type Broadcaster interface {
 	BroadcastToServer(serverID string, msg any)
-	ConnectedUserIDs(serverID string) []string
+	ConnectedDevices(serverID string) map[string][]string
 }
 
 type MLS struct {
@@ -154,9 +155,13 @@ type GroupStateResponse struct {
 	PendingRemoves []mls.Member     `json:"pendingRemoves"`
 	// The connected member expected to commit pending changes: the owner when
 	// online, else the lowest connected user id. Anyone may still commit.
-	CoordinatorUserID string       `json:"coordinatorUserId,omitempty"`
-	Welcome           *mls.Welcome `json:"welcome,omitempty"`
-	KeyPackagesLeft   int          `json:"keyPackagesLeft"`
+	CoordinatorUserID string `json:"coordinatorUserId,omitempty"`
+	// Which of the coordinator's devices: one that is connected and in the
+	// group. Absent when any of them will do (no group yet, or a client that
+	// did not declare its device).
+	CoordinatorDeviceID string       `json:"coordinatorDeviceId,omitempty"`
+	Welcome             *mls.Welcome `json:"welcome,omitempty"`
+	KeyPackagesLeft     int          `json:"keyPackagesLeft"`
 }
 
 // @Summary      MLS group state
@@ -196,7 +201,7 @@ func (m *MLS) State() http.HandlerFunc {
 					Epoch: st.Epoch, Members: st.Members, PendingAdds: adds, PendingRemoves: removes,
 					Welcome: welcome, KeyPackagesLeft: left,
 				}
-				resp.CoordinatorUserID = m.coordinator(ctx, serverID, st, adds)
+				resp.CoordinatorUserID, resp.CoordinatorDeviceID = m.coordinator(ctx, serverID, st, adds)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(resp)
 				return
@@ -207,16 +212,20 @@ func (m *MLS) State() http.HandlerFunc {
 	}
 }
 
-// coordinator picks who should drive the next commit among the users online
-// right now. Only users already in the group (or, for an empty group, any
-// member with a device) can build one.
-func (m *MLS) coordinator(ctx context.Context, serverID string, st *mls.GroupState, adds []mls.PendingAdd) string {
-	online := m.presence.ConnectedUserIDs(serverID)
+// coordinator picks who should drive the next commit among the connections
+// open right now. Only a device already in the group can build one (or, for
+// an empty group, any device of a member waiting to be added), so a user
+// counts only through a socket that declared such a device — or declared
+// none at all, which is an older client and keeps the per-user rule.
+func (m *MLS) coordinator(ctx context.Context, serverID string, st *mls.GroupState, adds []mls.PendingAdd) (userID, deviceID string) {
+	online := m.presence.ConnectedDevices(serverID)
 	if len(online) == 0 {
-		return ""
+		return "", ""
 	}
+	inGroup := map[string]string{}
 	eligible := map[string]bool{}
 	for _, mem := range st.Members {
+		inGroup[mem.DeviceID] = mem.UserID
 		eligible[mem.UserID] = true
 	}
 	if len(st.Members) == 0 {
@@ -224,20 +233,37 @@ func (m *MLS) coordinator(ctx context.Context, serverID string, st *mls.GroupSta
 			eligible[a.UserID] = true
 		}
 	}
-	candidates := online[:0:0]
-	for _, id := range online {
-		if eligible[id] {
-			candidates = append(candidates, id)
+
+	candidates := map[string]string{}
+	for uid, devices := range online {
+		if !eligible[uid] {
+			continue
+		}
+		if len(st.Members) == 0 {
+			candidates[uid] = ""
+			continue
+		}
+		best, undeclared := "", false
+		for _, d := range devices {
+			if d == "" {
+				undeclared = true
+			} else if inGroup[d] == uid && (best == "" || d < best) {
+				best = d
+			}
+		}
+		if best != "" || undeclared {
+			candidates[uid] = best
 		}
 	}
 	if len(candidates) == 0 {
-		return ""
+		return "", ""
 	}
 	owner, err := m.owners.OwnerID(ctx, serverID)
-	if err == nil && owner != "" && slices.Contains(candidates, owner) {
-		return owner
+	if dev, ok := candidates[owner]; err == nil && owner != "" && ok {
+		return owner, dev
 	}
-	return slices.Min(candidates)
+	first := slices.Min(slices.Collect(maps.Keys(candidates)))
+	return first, candidates[first]
 }
 
 // @Summary      Commits after an epoch

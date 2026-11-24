@@ -18,26 +18,21 @@ func NewInviteRepo(db DBTX) *InviteRepo {
 }
 
 func (r *InviteRepo) Create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error) {
-	return r.create(ctx, serverID, createdBy, expiresIn, false, false)
-}
-
-// CreateBot mints an invite whose signup creates a bot account.
-func (r *InviteRepo) CreateBot(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error) {
-	return r.create(ctx, serverID, createdBy, expiresIn, true, false)
+	return r.create(ctx, serverID, createdBy, expiresIn, false)
 }
 
 // CreateMultiUse mints an invite any number of people can redeem until it
 // expires: MarkUsed leaves it alone.
 func (r *InviteRepo) CreateMultiUse(ctx context.Context, serverID, createdBy string, expiresIn time.Duration) (string, error) {
-	return r.create(ctx, serverID, createdBy, expiresIn, false, true)
+	return r.create(ctx, serverID, createdBy, expiresIn, true)
 }
 
-func (r *InviteRepo) create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration, bot, multiUse bool) (string, error) {
+func (r *InviteRepo) create(ctx context.Context, serverID, createdBy string, expiresIn time.Duration, multiUse bool) (string, error) {
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(expiresIn).Unix()
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO invites (token, server_id, created_by, expires_at, bot, multi_use) VALUES ($1, $2, $3, $4, $5, $6)`,
-		token, serverID, createdBy, expiresAt, bot, multiUse,
+		`INSERT INTO invites (token, server_id, created_by, expires_at, multi_use) VALUES ($1, $2, $3, $4, $5)`,
+		token, serverID, createdBy, expiresAt, multiUse,
 	)
 	return token, err
 }
@@ -46,9 +41,9 @@ func (r *InviteRepo) Get(ctx context.Context, token string) (*invite.Invite, err
 	var inv invite.Invite
 	var expiresAt int64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT token, server_id, created_by, expires_at, bot, multi_use FROM invites WHERE token = $1 AND used_at IS NULL`,
+		`SELECT token, server_id, created_by, expires_at, multi_use FROM invites WHERE token = $1 AND used_at IS NULL`,
 		token,
-	).Scan(&inv.Token, &inv.ServerID, &inv.CreatedBy, &expiresAt, &inv.Bot, &inv.MultiUse)
+	).Scan(&inv.Token, &inv.ServerID, &inv.CreatedBy, &expiresAt, &inv.MultiUse)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

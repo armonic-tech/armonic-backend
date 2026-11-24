@@ -1,5 +1,5 @@
-# Production stack for one VPS: Postgres, the backend, the voice bot and Caddy.
-# Expects ../ to be this repo and ../../armonic-bot the bot repo. See README.md.
+# Production stack for one VPS: Postgres, the backend and Caddy.
+# Expects ../ to be this repo. See README.md.
 
 name: armonic
 
@@ -61,20 +61,8 @@ services:
       - caddy-config:/config
     restart: unless-stopped
 
-  bot:
-    build: ../../armonic-bot
-    network_mode: host
-    depends_on:
-      - app
-    env_file: bot.env
-    volumes:
-      - ./bot.config.yaml:/app/config.yaml:ro
-      - bot-data:/app/data
-    restart: unless-stopped
-
 volumes:
   db-data:
   uploads:
   caddy-data:
   caddy-config:
-  bot-data:

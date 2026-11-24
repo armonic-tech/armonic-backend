@@ -148,7 +148,6 @@ func (vc *VoiceChannel) Members() []Member {
 			Muted:       u.IsMuted(),
 			Deafened:    u.IsDeafened(),
 			Linked:      u.IsLinked(),
-			IsBot:       u.IsBot,
 		})
 	}
 	return members

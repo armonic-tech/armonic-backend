@@ -79,7 +79,6 @@ type UserRepo interface {
 	Upsert(ctx context.Context, id, displayName string) error
 	GetName(ctx context.Context, id string) (string, error)
 	GetProfile(ctx context.Context, id string) (displayName, avatarID string, err error)
-	IsBot(ctx context.Context, id string) (bool, error)
 }
 
 type WSHandler struct {
@@ -210,10 +209,6 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleKickVoice(msg)
 		case "kick-server":
 			s.handleKickServer(msg)
-		case "summon-bot":
-			s.handleSummonBot(msg)
-		case "dismiss-bot":
-			s.handleDismissBot(msg)
 		default:
 			slog.WarnContext(s.ctx, "ws: unknown frame type ignored", "type", msg.Type)
 		}

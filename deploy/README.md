@@ -1,8 +1,8 @@
 # Despliegue en una VPS
 
-Todo en una sola máquina: Postgres, el backend, el bot de voz y Caddy (HTTPS).
-Pensado para Vultr en São Paulo o Santiago; sirve para cualquier VPS con IPv4
-pública directamente en la máquina (sin NAT 1:1).
+Todo en una sola máquina: Postgres, el backend, Caddy (HTTPS) y, si se usa,
+el cliente web. Pensado para Vultr en São Paulo o Santiago; sirve para
+cualquier VPS con IPv4 pública directamente en la máquina (sin NAT 1:1).
 
 ## 1. La VPS
 
@@ -24,9 +24,10 @@ pública directamente en la máquina (sin NAT 1:1).
   ufw enable
   ```
 
-- **DNS**: un registro `A` del dominio del backend (y del cliente web, si lo
-  usás) a la IP de la VPS. Con Cloudflare, nube **gris** (solo DNS): el proxy
-  no pasa el UDP de la voz.
+- **DNS**: un registro `A` por dominio a la IP de la VPS: el del backend
+  (`API_DOMAIN`) y, si usás el cliente web, el suyo (`APP_DOMAIN`). Son dos
+  dominios distintos porque las rutas del cliente chocarían con las de la API.
+  Con Cloudflare, nube **gris** (solo DNS): el proxy no pasa el UDP de la voz.
 
 ## 2. Docker
 
@@ -36,25 +37,20 @@ curl -fsSL https://get.docker.com | sh
 
 ## 3. El código
 
-Los dos repos, uno al lado del otro, en las ramas que tienen el bot:
-
 ```bash
-git clone -b feature/bot-accounts <repo-backend> armonic
-git clone -b feature/grok-elevenlabs <repo-bot> armonic-bot
+git clone -b <rama> <repo-backend> armonic
 cd armonic/deploy
 ```
 
 ## 4. Configuración
 
 ```bash
-cp .env.example .env                       # dominios y secretos
-cp bot.env.example bot.env                 # claves de xAI y ElevenLabs
-cp bot.config.yaml.example bot.config.yaml # voice_id (invite_url después)
-chmod 600 .env bot.env
+cp .env.example .env
+chmod 600 .env
 ```
 
-Los secretos de `.env` se generan así. `CLAIM_PASSWORD` es la contraseña de
-reclamo del paso 6: **nueva**, no la de desarrollo; anotala.
+Completá los dominios y generá los secretos. `CLAIM_PASSWORD` es la
+contraseña de reclamo del paso 7: **nueva**, no la de desarrollo; anotala.
 
 ```bash
 openssl rand -hex 32      # JWT_SECRET
@@ -62,56 +58,51 @@ openssl rand -hex 24      # POSTGRES_PASSWORD
 openssl rand -base64 18   # CLAIM_PASSWORD
 ```
 
-`.env`, `bot.env` y `bot.config.yaml` están en `.gitignore`. No hace falta
-`config.json`: con `CLAIM_PASSWORD` definida, el backend no lo lee.
+Con cliente web: `APP_DOMAIN=<dominio del cliente>` y
+`CORS_ALLOWED_ORIGINS=https://<APP_DOMAIN>`. Sin él, dejá los dos vacíos.
 
-## 5. Levantar (sin el bot todavía)
+`.env` está en `.gitignore`. No hace falta `config.json`: con
+`CLAIM_PASSWORD` definida, el backend no lo lee.
+
+## 5. El cliente web (opcional)
+
+Se compila en tu máquina, no en la VPS (Flutter no entra cómodo en 2 GB):
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build db app caddy
+# en el repo del cliente, en la rama a desplegar
+flutter build web --release
+rsync -a --delete build/web/ root@<IP>:armonic/deploy/web/
+```
+
+Después descomentá el bloque `{$APP_DOMAIN}` del `Caddyfile`. Para
+actualizarlo más adelante alcanza con volver a compilar y correr el `rsync`:
+Caddy sirve los archivos nuevos sin reiniciar.
+
+## 6. Levantar
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f app caddy
 ```
 
-Caddy saca el certificado en el primer pedido; si falla, casi siempre es el
-DNS que todavía no propagó o el puerto 80 cerrado.
+Caddy saca los certificados en el primer pedido a cada dominio; si falla,
+casi siempre es el DNS que todavía no propagó o el puerto 80 cerrado.
 
-## 6. Reclamar la instancia — enseguida
+## 7. Reclamar la instancia — enseguida
 
 Desde el cliente, agregá `https://<API_DOMAIN>` y reclamala con
 `CLAIM_PASSWORD`. Hasta que la reclames, cualquiera que la conozca podría
 hacerlo antes.
 
-## 7. El bot
-
-1. En el cliente: menú del servidor > **Crear invitación para bot**.
-2. Pegá el enlace en `invite_url` de `bot.config.yaml`.
-3. Levantalo:
-
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d --build bot
-   docker compose -f docker-compose.prod.yml logs -f bot
-   ```
-
-   Tiene que decir `bot: connected, waiting for a summon`. La primera vez crea
-   la cuenta con la invitación; después entra con usuario y contraseña.
-
-## 8. Cliente web (opcional)
-
-Si alguien va a entrar desde el navegador: `flutter build web` en el cliente,
-copiá `build/web/` a `deploy/web/`, completá `APP_DOMAIN` y
-`CORS_ALLOWED_ORIGINS=https://<APP_DOMAIN>` en `.env`, descomentá el bloque
-del `Caddyfile` y reiniciá `app` y `caddy`. Va en un dominio aparte del
-backend porque sus rutas chocarían con las de la API.
-
 ## Operación
 
 ```bash
 # logs (el del backend también queda en el volumen, /app/data/armonic.log)
-docker compose -f docker-compose.prod.yml logs -f --tail 100 app bot
+docker compose -f docker-compose.prod.yml logs -f --tail 100 app
 
-# actualizar
-git -C ../ pull && git -C ../../armonic-bot pull
-docker compose -f docker-compose.prod.yml up -d --build
+# actualizar el backend
+git -C .. pull
+docker compose -f docker-compose.prod.yml up -d --build app
 
 # backup de la base
 docker compose -f docker-compose.prod.yml exec db pg_dump -U armonic armonic | gzip > armonic-$(date +%F).sql.gz
@@ -124,6 +115,6 @@ Vultr los cubren.
 
 - Probá el Wi-Fi del lugar: si bloquea UDP, la llamada queda en "conectando
   RTC". Plan B: datos móviles.
-- Hacé un turno de prueba con el bot antes de empezar: la primera respuesta de
-  cada sesión es la más lenta.
-- Revisá `daily_budget` en `bot.config.yaml` y el saldo en xAI y ElevenLabs.
+- El cifrado de un dispositivo nuevo lo habilita un miembro del grupo que
+  esté conectado (`docs/ai/e2ee.md`): dejá abierta una sesión tuya en la que
+  ya leas los mensajes cifrados mientras la gente se suma.

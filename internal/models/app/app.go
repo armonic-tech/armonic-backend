@@ -58,6 +58,14 @@ func (a *App) ConnectedUserIDs(serverID string) []string {
 	return srv.ConnectedUserIDs()
 }
 
+func (a *App) ConnectedDevices(serverID string) map[string][]string {
+	srv := a.getServer(serverID)
+	if srv == nil {
+		return nil
+	}
+	return srv.ConnectedDevices()
+}
+
 // Stats counts live state for the runtime heartbeat. Each layer is locked on
 // its own, so the numbers are a near-snapshot, not an atomic one.
 func (a *App) Stats() (servers, connected, voice int) {

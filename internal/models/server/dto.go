@@ -16,7 +16,6 @@ type MemberInfo struct {
 	AvatarURL   string `json:"avatarUrl,omitempty"`
 	IsOwner     bool   `json:"isOwner"`
 	Online      bool   `json:"online"`
-	IsBot       bool   `json:"isBot,omitempty"`
 }
 
 // LogoURLFor is the public path a client fetches a server's logo from. The

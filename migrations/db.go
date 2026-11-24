@@ -73,6 +73,8 @@ func Migrate(db *sql.DB) error {
 		ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id TEXT;
 		ALTER TABLE messages ADD COLUMN IF NOT EXISTS encrypted BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_id TEXT;
+		-- is_bot and invites.bot are no longer read (bot accounts were removed);
+		-- kept so existing databases need nothing dropped.
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE invites ADD COLUMN IF NOT EXISTS bot BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE invites ADD COLUMN IF NOT EXISTS multi_use BOOLEAN NOT NULL DEFAULT FALSE;

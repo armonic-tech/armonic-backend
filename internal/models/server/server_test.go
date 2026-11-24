@@ -195,3 +195,15 @@ func TestEverySessionOfTheDeleterSeesMessageDeleted(t *testing.T) {
 	require.Equal(t, 1, first.count())
 	require.Equal(t, 1, second.count())
 }
+
+func TestConnectedDevicesFollowEachSocket(t *testing.T) {
+	sv := NewServer("s")
+	laptop, phone := &fakeSocket{}, &fakeSocket{}
+	sv.AddConnectedUser(&user.User{ID: "ana", Signaling: laptop, DeviceID: "dev-laptop"})
+	sv.AddConnectedUser(&user.User{ID: "ana", Signaling: phone})
+
+	require.ElementsMatch(t, []string{"dev-laptop", ""}, sv.ConnectedDevices()["ana"])
+
+	sv.RemoveConnection("ana", laptop)
+	require.Equal(t, map[string][]string{"ana": {""}}, sv.ConnectedDevices())
+}

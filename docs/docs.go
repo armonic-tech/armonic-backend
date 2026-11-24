@@ -551,7 +551,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Owner-only. Mint a single-use invite link for a server. With {\"bot\": true} the account it creates is a bot (docs/ai/bots.md).",
+                "description": "Owner-only. Mint a single-use invite link for a server. With {\"multiUse\": true} it admits anyone until it expires.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1186,9 +1186,6 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "isBot": {
-                    "type": "boolean"
-                },
                 "linked": {
                     "description": "Linked is false while the member's peer connection is still being set\nup: present in the channel, but no audio can flow either way yet.",
                     "type": "boolean"
@@ -1246,7 +1243,7 @@ const docTemplate = `{
         "handlers.CreateInviteRequest": {
             "type": "object",
             "properties": {
-                "bot": {
+                "multiUse": {
                     "type": "boolean"
                 }
             }
@@ -1254,6 +1251,10 @@ const docTemplate = `{
         "handlers.GroupStateResponse": {
             "type": "object",
             "properties": {
+                "coordinatorDeviceId": {
+                    "description": "Which of the coordinator's devices: one that is connected and in the\ngroup. Absent when any of them will do (no group yet, or a client that\ndid not declare its device).",
+                    "type": "string"
+                },
                 "coordinatorUserId": {
                     "description": "The connected member expected to commit pending changes: the owner when\nonline, else the lowest connected user id. Anyone may still commit.",
                     "type": "string"
@@ -1290,11 +1291,11 @@ const docTemplate = `{
         "handlers.InviteCreatedResponse": {
             "type": "object",
             "properties": {
-                "bot": {
-                    "type": "boolean"
-                },
                 "inviteToken": {
                     "type": "string"
+                },
+                "multiUse": {
+                    "type": "boolean"
                 },
                 "url": {
                     "type": "string"
@@ -1620,9 +1621,6 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
-                },
-                "isBot": {
-                    "type": "boolean"
                 },
                 "isOwner": {
                     "type": "boolean"

@@ -17,18 +17,13 @@ type fakeInviteCreator struct {
 	token                     string
 	err                       error
 	gotServerID, gotCreatedBy string
-	gotBot, gotMultiUse       bool
+	gotMultiUse               bool
 }
 
 func (f *fakeInviteCreator) Create(_ context.Context, serverID, createdBy string, _ time.Duration) (string, error) {
 	f.gotServerID = serverID
 	f.gotCreatedBy = createdBy
 	return f.token, f.err
-}
-
-func (f *fakeInviteCreator) CreateBot(ctx context.Context, serverID, createdBy string, d time.Duration) (string, error) {
-	f.gotBot = true
-	return f.Create(ctx, serverID, createdBy, d)
 }
 
 func (f *fakeInviteCreator) CreateMultiUse(ctx context.Context, serverID, createdBy string, d time.Duration) (string, error) {
@@ -51,37 +46,6 @@ func TestCreateInvite_MultiUseBody(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.True(t, resp.MultiUse)
 	require.True(t, creator.gotMultiUse)
-	require.False(t, creator.gotBot)
-}
-
-func TestCreateInvite_BotCannotBeMultiUse(t *testing.T) {
-	creator := &fakeInviteCreator{token: "x"}
-	req := httptest.NewRequest(http.MethodPost, "/server/"+validUUID+"/invite", strings.NewReader(`{"bot":true,"multiUse":true}`))
-	req.SetPathValue("id", validUUID)
-	req = req.WithContext(WithUserID(req.Context(), "owner-1"))
-	rec := httptest.NewRecorder()
-
-	CreateInvite(creator, "https://armonic.example").ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Empty(t, creator.gotServerID)
-}
-
-func TestCreateInvite_BotBody(t *testing.T) {
-	creator := &fakeInviteCreator{token: "tok-bot"}
-
-	req := httptest.NewRequest(http.MethodPost, "/server/"+validUUID+"/invite", strings.NewReader(`{"bot":true}`))
-	req.SetPathValue("id", validUUID)
-	req = req.WithContext(WithUserID(req.Context(), "owner-1"))
-	rec := httptest.NewRecorder()
-
-	CreateInvite(creator, "https://armonic.example").ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusCreated, rec.Code)
-	var resp InviteCreatedResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.True(t, resp.Bot)
-	require.True(t, creator.gotBot)
 }
 
 func TestCreateInvite_BadBody(t *testing.T) {
